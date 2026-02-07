@@ -3,6 +3,7 @@ import { addDays, differenceInCalendarDays, format, isBefore, parseISO, startOfD
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -11,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { downloadCsv, downloadXlsx } from "@/lib/export";
 
 const ASSET_STATUS_ORDER = ["IN_STOCK", "ASSIGNED", "IN_REPAIR", "RETIRED"] as const;
 const ORDER_STATUS_CLOSED = ["RECEIVED", "CANCELLED"] as const;
@@ -22,6 +24,43 @@ const errorMessage = (error: unknown) =>
 const isBlank = (value?: string | null) => !value || value.trim().length === 0;
 
 const formatDate = (value?: string | null) => (value ? format(parseISO(value), "MMM d, yyyy") : "—");
+
+const ExportActions = ({
+  filename,
+  rows,
+  sheetName,
+}: {
+  filename: string;
+  rows: Record<string, unknown>[];
+  sheetName?: string;
+}) => (
+  <div className="flex flex-wrap gap-2">
+    <Button variant="outline" size="sm" onClick={() => downloadCsv(`${filename}.csv`, rows)}>
+      Export CSV
+    </Button>
+    <Button variant="outline" size="sm" onClick={() => downloadXlsx(filename, rows, sheetName)}>
+      Export Excel
+    </Button>
+  </div>
+);
+
+const ReportCardHeader = ({
+  title,
+  description,
+  actions,
+}: {
+  title: string;
+  description: string;
+  actions: React.ReactNode;
+}) => (
+  <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+    <div className="space-y-1.5">
+      <CardTitle className="text-lg">{title}</CardTitle>
+      <CardDescription>{description}</CardDescription>
+    </div>
+    {actions}
+  </CardHeader>
+);
 
 export default function Reports() {
   const assetsByStatusQuery = useQuery({
@@ -254,6 +293,87 @@ export default function Reports() {
     },
   });
 
+  const assetsByStatusRows =
+    assetsByStatusQuery.data?.map((row) => ({
+      status: row.status.replace(/_/g, " "),
+      count: row.count,
+    })) ?? [];
+
+  const assetsByCategoryRows =
+    assetsByCategoryQuery.data?.map((row) => ({
+      category: row.category,
+      count: row.count,
+    })) ?? [];
+
+  const assignmentSummaryRows = assignmentSummaryQuery.data
+    ? [
+        { metric: "Total assets", value: assignmentSummaryQuery.data.total },
+        { metric: "Assigned", value: assignmentSummaryQuery.data.assigned },
+        { metric: "In stock", value: assignmentSummaryQuery.data.inStock },
+      ]
+    : [];
+
+  const warrantyRows =
+    warrantyExpiringQuery.data?.items?.map((asset) => ({
+      asset_tag: asset.asset_tag,
+      category: asset.category,
+      warranty_end_date: formatDate(asset.warranty_end_date),
+      assigned_to_name: asset.assigned_to_name || "—",
+    })) ?? [];
+
+  const assetsMissingSerialRows =
+    assetsMissingSerialQuery.data?.items?.map((asset) => ({
+      asset_tag: asset.asset_tag,
+      category: asset.category,
+      manufacturer: asset.manufacturer || "—",
+      model: asset.model || "—",
+      assigned_to_name: asset.assigned_to_name || "—",
+    })) ?? [];
+
+  const assetsMissingLocationRows =
+    assetsMissingLocationQuery.data?.items?.map((asset) => ({
+      asset_tag: asset.asset_tag,
+      category: asset.category,
+      status: asset.status.replace(/_/g, " "),
+      assigned_to_name: asset.assigned_to_name || "—",
+    })) ?? [];
+
+  const ordersByStatusRows =
+    ordersByStatusQuery.data?.map((row) => ({
+      status: row.status.replace(/_/g, " "),
+      count: row.count,
+    })) ?? [];
+
+  const ordersMissingAssetsRows =
+    ordersMissingAssetsQuery.data?.map((order) => ({
+      order_number: order.order_number,
+      vendor_name: order.vendor_name,
+      received_date: formatDate(order.received_date),
+      action: "Create Assets",
+    })) ?? [];
+
+  const overdueOrdersRows =
+    overdueOrdersQuery.data?.map((order) => ({
+      order_number: order.order_number,
+      vendor_name: order.vendor_name,
+      status: order.status.replace(/_/g, " "),
+      expected_delivery_date: formatDate(order.expected_delivery_date),
+    })) ?? [];
+
+  const spendByVendorRows =
+    spendByVendorQuery.data?.map((row) => ({
+      vendor: row.vendor,
+      spend: currency.format(row.spend),
+    })) ?? [];
+
+  const recentActivityRows =
+    recentActivityQuery.data?.map((entry) => ({
+      timestamp: format(new Date(entry.timestamp), "MMM d, yyyy HH:mm"),
+      entity_type: entry.entity_type,
+      action: entry.action,
+      performed_by: entry.performed_by,
+    })) ?? [];
+
   return (
     <div>
       <div className="mb-6">
@@ -263,10 +383,11 @@ export default function Reports() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Assets by Status</CardTitle>
-            <CardDescription>Inventory distribution across lifecycle states.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Assets by Status"
+            description="Inventory distribution across lifecycle states."
+            actions={<ExportActions filename="assets-by-status" rows={assetsByStatusRows} sheetName="Assets by Status" />}
+          />
           <CardContent>
             {assetsByStatusQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -276,7 +397,12 @@ export default function Reports() {
               <ul className="space-y-2 text-sm">
                 {assetsByStatusQuery.data.map((row) => (
                   <li key={row.status} className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{row.status.replace(/_/g, " ")}</span>
+                    <Link
+                      to={`/assets?status=${row.status}`}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      {row.status.replace(/_/g, " ")}
+                    </Link>
                     <span className="font-medium text-foreground">{row.count}</span>
                   </li>
                 ))}
@@ -288,10 +414,11 @@ export default function Reports() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Assets by Category</CardTitle>
-            <CardDescription>Top categories by asset count.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Assets by Category"
+            description="Top categories by asset count."
+            actions={<ExportActions filename="assets-by-category" rows={assetsByCategoryRows} sheetName="Assets by Category" />}
+          />
           <CardContent>
             {assetsByCategoryQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -301,7 +428,12 @@ export default function Reports() {
               <ul className="space-y-2 text-sm">
                 {assetsByCategoryQuery.data.map((row) => (
                   <li key={row.category} className="flex items-center justify-between">
-                    <span className="text-muted-foreground capitalize">{row.category}</span>
+                    <Link
+                      to={`/assets?category=${encodeURIComponent(row.category)}`}
+                      className="text-muted-foreground capitalize hover:underline"
+                    >
+                      {row.category}
+                    </Link>
                     <span className="font-medium text-foreground">{row.count}</span>
                   </li>
                 ))}
@@ -313,10 +445,11 @@ export default function Reports() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Assignment Summary</CardTitle>
-            <CardDescription>Assigned vs in-stock overview.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Assignment Summary"
+            description="Assigned vs in-stock overview."
+            actions={<ExportActions filename="assignment-summary" rows={assignmentSummaryRows} sheetName="Assignment Summary" />}
+          />
           <CardContent>
             {assignmentSummaryQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -344,10 +477,11 @@ export default function Reports() {
         </Card>
 
         <Card className="md:col-span-2 xl:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Warranty Expiring</CardTitle>
-            <CardDescription>Assets with warranties ending soon.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Warranty Expiring"
+            description="Assets with warranties ending soon."
+            actions={<ExportActions filename="warranty-expiring" rows={warrantyRows} sheetName="Warranty Expiring" />}
+          />
           <CardContent>
             {warrantyExpiringQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -412,10 +546,11 @@ export default function Reports() {
         </Card>
 
         <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Assets Missing Serial Number</CardTitle>
-            <CardDescription>Assets without a recorded serial number.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Assets Missing Serial Number"
+            description="Assets without a recorded serial number."
+            actions={<ExportActions filename="assets-missing-serial" rows={assetsMissingSerialRows} sheetName="Missing Serial Numbers" />}
+          />
           <CardContent>
             {assetsMissingSerialQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -465,10 +600,11 @@ export default function Reports() {
         </Card>
 
         <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Assets Missing Location</CardTitle>
-            <CardDescription>Assets without a recorded location.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Assets Missing Location"
+            description="Assets without a recorded location."
+            actions={<ExportActions filename="assets-missing-location" rows={assetsMissingLocationRows} sheetName="Missing Locations" />}
+          />
           <CardContent>
             {assetsMissingLocationQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -518,10 +654,11 @@ export default function Reports() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Orders by Status</CardTitle>
-            <CardDescription>Order pipeline snapshot.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Orders by Status"
+            description="Order pipeline snapshot."
+            actions={<ExportActions filename="orders-by-status" rows={ordersByStatusRows} sheetName="Orders by Status" />}
+          />
           <CardContent>
             {ordersByStatusQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
@@ -531,7 +668,12 @@ export default function Reports() {
               <ul className="space-y-2 text-sm">
                 {ordersByStatusQuery.data.map((row) => (
                   <li key={row.status} className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{row.status.replace(/_/g, " ")}</span>
+                    <Link
+                      to={`/orders?status=${row.status}`}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      {row.status.replace(/_/g, " ")}
+                    </Link>
                     <span className="font-medium text-foreground">{row.count}</span>
                   </li>
                 ))}
@@ -543,10 +685,11 @@ export default function Reports() {
         </Card>
 
         <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Orders Received Without Assets</CardTitle>
-            <CardDescription>Received orders with no linked assets.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Orders Received Without Assets"
+            description="Received orders with no linked assets."
+            actions={<ExportActions filename="orders-missing-assets" rows={ordersMissingAssetsRows} sheetName="Orders Missing Assets" />}
+          />
           <CardContent>
             <Table>
               <TableHeader>
@@ -598,10 +741,11 @@ export default function Reports() {
         </Card>
 
         <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Overdue Orders</CardTitle>
-            <CardDescription>Orders past expected delivery date.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Overdue Orders"
+            description="Orders past expected delivery date."
+            actions={<ExportActions filename="overdue-orders" rows={overdueOrdersRows} sheetName="Overdue Orders" />}
+          />
           <CardContent>
             <Table>
               <TableHeader>
@@ -651,10 +795,11 @@ export default function Reports() {
         </Card>
 
         <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Spend by Vendor</CardTitle>
-            <CardDescription>Approximate spend based on line items.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Spend by Vendor"
+            description="Approximate spend based on line items."
+            actions={<ExportActions filename="spend-by-vendor" rows={spendByVendorRows} sheetName="Spend by Vendor" />}
+          />
           <CardContent>
             <Table>
               <TableHeader>
@@ -679,7 +824,14 @@ export default function Reports() {
                 ) : spendByVendorQuery.data?.length ? (
                   spendByVendorQuery.data.map((row) => (
                     <TableRow key={row.vendor}>
-                      <TableCell>{row.vendor}</TableCell>
+                      <TableCell>
+                        <Link
+                          to={`/orders?vendor=${encodeURIComponent(row.vendor)}`}
+                          className="hover:underline text-muted-foreground"
+                        >
+                          {row.vendor}
+                        </Link>
+                      </TableCell>
                       <TableCell className="text-right font-medium">
                         {currency.format(row.spend)}
                       </TableCell>
@@ -698,10 +850,11 @@ export default function Reports() {
         </Card>
 
         <Card className="md:col-span-2 xl:col-span-3">
-          <CardHeader>
-            <CardTitle className="text-lg">Recent Activity</CardTitle>
-            <CardDescription>Latest audit log entries.</CardDescription>
-          </CardHeader>
+          <ReportCardHeader
+            title="Recent Activity"
+            description="Latest audit log entries."
+            actions={<ExportActions filename="recent-activity" rows={recentActivityRows} sheetName="Recent Activity" />}
+          />
           <CardContent>
             <Table>
               <TableHeader>

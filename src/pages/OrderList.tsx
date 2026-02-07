@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { fetchOrders, ORDER_STATUSES } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -24,17 +24,56 @@ import {
 } from "@/components/ui/table";
 import { format } from "date-fns";
 
+const decodeParam = (value: string | null) => {
+  if (value === null) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
 export default function OrderList() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("");
+  const [vendor, setVendor] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const statusParam = decodeParam(params.get("status"));
+    const vendorParam = decodeParam(params.get("vendor"));
+    const searchParam = decodeParam(params.get("q"));
+
+    if (statusParam !== null) setStatus(statusParam);
+    if (vendorParam !== null) setVendor(vendorParam);
+    if (searchParam !== null) setSearch(searchParam);
+  }, [location.search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (status) params.set("status", status);
+    if (vendor) params.set("vendor", vendor);
+
+    const next = params.toString();
+    const current = location.search.startsWith("?") ? location.search.slice(1) : location.search;
+    if (next !== current) {
+      navigate(next ? `?${next}` : "", { replace: true });
+    }
+  }, [search, status, vendor, navigate, location.search]);
 
   const { data: orders, isLoading } = useQuery({
-    queryKey: ["orders", search, status],
-    queryFn: () =>
-      fetchOrders({
+    queryKey: ["orders", search, status, vendor],
+    queryFn: async () => {
+      const data = await fetchOrders({
         search: search || undefined,
         status: status || undefined,
-      }),
+      });
+      if (!vendor) return data;
+      return data.filter((order) => order.vendor_name === vendor);
+    },
   });
 
   return (

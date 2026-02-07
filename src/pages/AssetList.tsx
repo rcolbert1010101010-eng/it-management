@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { fetchAssets, ASSET_STATUSES, ASSET_CATEGORIES } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -23,10 +23,45 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+const decodeParam = (value: string | null) => {
+  if (value === null) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
 export default function AssetList() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("");
   const [category, setCategory] = useState<string>("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const statusParam = decodeParam(params.get("status"));
+    const categoryParam = decodeParam(params.get("category"));
+    const searchParam = decodeParam(params.get("q"));
+
+    if (statusParam !== null) setStatus(statusParam);
+    if (categoryParam !== null) setCategory(categoryParam);
+    if (searchParam !== null) setSearch(searchParam);
+  }, [location.search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (status) params.set("status", status);
+    if (category) params.set("category", category);
+
+    const next = params.toString();
+    const current = location.search.startsWith("?") ? location.search.slice(1) : location.search;
+    if (next !== current) {
+      navigate(next ? `?${next}` : "", { replace: true });
+    }
+  }, [search, status, category, navigate, location.search]);
 
   const { data: assets, isLoading } = useQuery({
     queryKey: ["assets", search, status, category],
