@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -75,6 +76,7 @@ export default function OrderList() {
       return data.filter((order) => order.vendor_name === vendor);
     },
   });
+  const isEmpty = !isLoading && (orders?.length ?? 0) === 0;
 
   return (
     <div>
@@ -112,61 +114,71 @@ export default function OrderList() {
         </Select>
       </div>
 
-      <div className="rounded-lg border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Order #</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Order Date</TableHead>
-              <TableHead>Expected Delivery</TableHead>
-              <TableHead>Requested By</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
+      {isEmpty ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>No orders yet</CardTitle>
+            <CardDescription>
+              Create your first order to track purchases and deliveries.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link to="/orders/new">New Order</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-lg border bg-card">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  Loading...
-                </TableCell>
+                <TableHead>Order #</TableHead>
+                <TableHead>Vendor</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Order Date</TableHead>
+                <TableHead>Expected Delivery</TableHead>
+                <TableHead>Requested By</TableHead>
               </TableRow>
-            ) : orders?.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  No orders found
-                </TableCell>
-              </TableRow>
-            ) : (
-              orders?.map((order) => (
-                <TableRow key={order.id}>
-                  <TableCell>
-                    <Link
-                      to={`/orders/${order.id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {order.order_number}
-                    </Link>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    Loading...
                   </TableCell>
-                  <TableCell>{order.vendor_name}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={order.status} type="order" />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {order.order_date ? format(new Date(order.order_date), "MMM d, yyyy") : "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {order.expected_delivery_date
-                      ? format(new Date(order.expected_delivery_date), "MMM d, yyyy")
-                      : "—"}
-                  </TableCell>
-                  <TableCell>{order.requested_by_name || "—"}</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              ) : (
+                orders?.map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell>
+                      <Link
+                        to={`/orders/${order.id}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {order.order_number}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{order.vendor_name}</TableCell>
+                    <TableCell>
+                      <StatusBadge kind="order" value={order.status} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {order.order_date ? format(new Date(order.order_date), "MMM d, yyyy") : "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {order.expected_delivery_date
+                        ? format(new Date(order.expected_delivery_date), "MMM d, yyyy")
+                        : "—"}
+                    </TableCell>
+                    <TableCell>{order.requested_by_name || "—"}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,21 @@
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+
+const assetStatusLabels: Record<string, string> = {
+  IN_STOCK: "Available",
+  ASSIGNED: "Assigned",
+  IN_REPAIR: "In repair",
+  RETIRED: "Retired",
+};
+
+const orderStatusLabels: Record<string, string> = {
+  REQUESTED: "Requested",
+  APPROVED: "Approved",
+  ORDERED: "Ordered",
+  SHIPPED: "Shipped",
+  RECEIVED: "Received",
+  CANCELLED: "Cancelled",
+};
 
 const assetStatusColors: Record<string, string> = {
   IN_STOCK: "bg-status-in-stock/15 text-status-in-stock",
@@ -16,22 +33,27 @@ const orderStatusColors: Record<string, string> = {
   CANCELLED: "bg-status-cancelled/15 text-status-cancelled",
 };
 
+const formatFallback = (value: string) =>
+  value
+    .toLowerCase()
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+
 export function StatusBadge({
-  status,
-  type,
+  kind,
+  value,
 }: {
-  status: string;
-  type: "asset" | "order";
+  kind: "asset" | "order";
+  value: string;
 }) {
-  const colors = type === "asset" ? assetStatusColors : orderStatusColors;
+  const labels = kind === "asset" ? assetStatusLabels : orderStatusLabels;
+  const colors = kind === "asset" ? assetStatusColors : orderStatusColors;
+  const label = labels[value] ?? formatFallback(value);
+
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-        colors[status] || "bg-muted text-muted-foreground"
-      )}
-    >
-      {status.replace(/_/g, " ")}
-    </span>
+    <Badge className={cn("border-transparent", colors[value] || "bg-muted text-muted-foreground")}>
+      {label}
+    </Badge>
   );
 }

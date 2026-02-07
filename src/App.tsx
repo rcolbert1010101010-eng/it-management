@@ -2,9 +2,11 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
+import RequireAuth from "@/components/RequireAuth";
 import Dashboard from "@/pages/Dashboard";
+import Login from "@/pages/Login";
 import AssetList from "@/pages/AssetList";
 import AssetDetail from "@/pages/AssetDetail";
 import AssetForm from "@/pages/AssetForm";
@@ -23,23 +25,26 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AppLayout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/assets" element={<AssetList />} />
-            <Route path="/assets/new" element={<AssetForm />} />
-            <Route path="/assets/:id" element={<AssetDetail />} />
-            <Route path="/assets/:id/edit" element={<AssetForm />} />
-            <Route path="/orders" element={<OrderList />} />
-            <Route path="/orders/new" element={<OrderForm />} />
-            <Route path="/orders/:id" element={<OrderDetail />} />
-            <Route path="/orders/:id/edit" element={<OrderForm />} />
-            <Route path="/audit-log" element={<AuditLog />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AppLayout>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<RequireAuth />}>
+            <Route element={<AppLayout><Outlet /></AppLayout>}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/assets" element={<AssetList />} />
+              <Route path="/assets/new" element={<AssetForm />} />
+              <Route path="/assets/:id" element={<AssetDetail />} />
+              <Route path="/assets/:id/edit" element={<AssetForm />} />
+              <Route path="/orders" element={<OrderList />} />
+              <Route path="/orders/new" element={<OrderForm />} />
+              <Route path="/orders/:id" element={<OrderDetail />} />
+              <Route path="/orders/:id/edit" element={<OrderForm />} />
+              <Route path="/audit-log" element={<AuditLog />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Route>
+        </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

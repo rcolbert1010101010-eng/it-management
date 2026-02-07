@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -72,6 +73,7 @@ export default function AssetList() {
         category: category || undefined,
       }),
   });
+  const isEmpty = !isLoading && (assets?.length ?? 0) === 0;
 
   return (
     <div>
@@ -122,57 +124,67 @@ export default function AssetList() {
         </Select>
       </div>
 
-      <div className="rounded-lg border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Asset Tag</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Model</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Assigned To</TableHead>
-              <TableHead>Location</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
+      {isEmpty ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>No assets yet</CardTitle>
+            <CardDescription>
+              Add your first asset to start tracking assignments and repairs.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link to="/assets/new">Add Asset</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-lg border bg-card">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  Loading...
-                </TableCell>
+                <TableHead>Asset Tag</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Model</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Assigned To</TableHead>
+                <TableHead>Location</TableHead>
               </TableRow>
-            ) : assets?.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  No assets found
-                </TableCell>
-              </TableRow>
-            ) : (
-              assets?.map((asset) => (
-                <TableRow key={asset.id}>
-                  <TableCell>
-                    <Link
-                      to={`/assets/${asset.id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {asset.asset_tag}
-                    </Link>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    Loading...
                   </TableCell>
-                  <TableCell className="capitalize">{asset.category}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "—"}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={asset.status} type="asset" />
-                  </TableCell>
-                  <TableCell>{asset.assigned_to_name || "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{asset.location || "—"}</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              ) : (
+                assets?.map((asset) => (
+                  <TableRow key={asset.id}>
+                    <TableCell>
+                      <Link
+                        to={`/assets/${asset.id}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {asset.asset_tag}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="capitalize">{asset.category}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge kind="asset" value={asset.status} />
+                    </TableCell>
+                    <TableCell>{asset.assigned_to_name || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{asset.location || "—"}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }

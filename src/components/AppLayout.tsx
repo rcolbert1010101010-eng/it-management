@@ -1,7 +1,10 @@
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { BarChart3, LayoutDashboard, Monitor, ShoppingCart, FileText, User } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/lib/store";
 
 const navItems = [
@@ -14,15 +17,41 @@ const navItems = [
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { performedBy, setPerformedBy } = useAppStore();
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setHasSession(!!data.session);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setHasSession(!!session);
+    });
+
+    return () => {
+      active = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    navigate("/login");
+  };
+
+  if (location.pathname.startsWith("/login")) {
+    return <div className="w-full">{children}</div>;
+  }
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card">
         <div className="flex h-14 items-center px-4">
-          <div className="text-lg font-semibold text-foreground">
-            IT Manager
-          </div>
+          <div className="text-lg font-semibold text-foreground">IT Management</div>
           <div className="ml-auto flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground" />
             <Input
@@ -31,6 +60,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               value={performedBy}
               onChange={(e) => setPerformedBy(e.target.value)}
             />
+            {hasSession ? (
+              <Button variant="outline" size="sm" onClick={handleSignOut}>
+                Sign out
+              </Button>
+            ) : null}
           </div>
         </div>
       </header>
