@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { createAsset, updateAsset, fetchAsset, ASSET_CATEGORIES, ASSET_STATUSES, type AssetInsert } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { PageHeader } from "@/components/PageHeader";
+import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +39,7 @@ export default function AssetForm() {
     warranty_end_date: "",
     notes: "",
   });
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const { isLoading: loadingAsset } = useQuery({
     queryKey: ["asset", id],
@@ -120,12 +122,17 @@ export default function AssetForm() {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <Label htmlFor="asset_tag">Asset Tag *</Label>
-              <Input
-                id="asset_tag"
-                required
-                value={form.asset_tag || ""}
-                onChange={(e) => update("asset_tag", e.target.value)}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="asset_tag"
+                  required
+                  value={form.asset_tag || ""}
+                  onChange={(e) => update("asset_tag", e.target.value)}
+                />
+                <Button type="button" variant="outline" onClick={() => setScannerOpen(true)}>
+                  Scan
+                </Button>
+              </div>
             </div>
             <div>
               <Label htmlFor="category">Category *</Label>
@@ -256,6 +263,12 @@ export default function AssetForm() {
           </Button>
         </div>
       </form>
+
+      <BarcodeScannerDialog
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onDetected={(value) => update("asset_tag", value.trim())}
+      />
     </div>
   );
 }
