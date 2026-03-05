@@ -1,0 +1,2 @@
+ALTER TABLE public.orders DROP CONSTRAINT orders_status_check;
+ALTER TABLE public.orders ADD CONSTRAINT orders_status_check CHECK (status IN ('REQUESTED', 'APPROVED', 'ORDERED', 'SHIPPED', 'READY_FOR_PICKUP', 'RECEIVED', 'CANCELLED'));
