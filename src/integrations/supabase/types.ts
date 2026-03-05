@@ -16,12 +16,13 @@ export type Database = {
     Tables: {
       assets: {
         Row: {
-          asset_tag: string
+          asset_tag: string | null
           assigned_to_email: string | null
           assigned_to_name: string | null
           category: string
           created_at: string
           id: string
+          is_consumable: boolean
           location: string | null
           manufacturer: string | null
           model: string | null
@@ -35,12 +36,13 @@ export type Database = {
           warranty_end_date: string | null
         }
         Insert: {
-          asset_tag: string
+          asset_tag?: string | null
           assigned_to_email?: string | null
           assigned_to_name?: string | null
           category: string
           created_at?: string
           id?: string
+          is_consumable?: boolean
           location?: string | null
           manufacturer?: string | null
           model?: string | null
@@ -54,12 +56,13 @@ export type Database = {
           warranty_end_date?: string | null
         }
         Update: {
-          asset_tag?: string
+          asset_tag?: string | null
           assigned_to_email?: string | null
           assigned_to_name?: string | null
           category?: string
           created_at?: string
           id?: string
+          is_consumable?: boolean
           location?: string | null
           manufacturer?: string | null
           model?: string | null
