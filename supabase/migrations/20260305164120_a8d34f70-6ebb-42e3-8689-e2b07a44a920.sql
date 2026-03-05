@@ -1,0 +1,1 @@
+ALTER TABLE public.assets DROP CONSTRAINT assets_category_check;
