@@ -19,7 +19,7 @@ export const ASSET_CATEGORIES = [
 export const ASSET_STATUSES = ["IN_STOCK", "ASSIGNED", "IN_REPAIR", "RETIRED"] as const;
 
 export const ORDER_STATUSES = [
-  "REQUESTED", "APPROVED", "ORDERED", "SHIPPED", "RECEIVED", "CANCELLED",
+  "REQUESTED", "APPROVED", "ORDERED", "SHIPPED", "READY_FOR_PICKUP", "RECEIVED", "CANCELLED",
 ] as const;
 
 // ---- Assets ----
