@@ -13,6 +13,7 @@ const orderStatusLabels: Record<string, string> = {
   APPROVED: "Approved",
   ORDERED: "Ordered",
   SHIPPED: "Shipped",
+  READY_FOR_PICKUP: "Ready For Pickup",
   RECEIVED: "Received",
   CANCELLED: "Cancelled",
 };
@@ -29,6 +30,7 @@ const orderStatusColors: Record<string, string> = {
   APPROVED: "bg-status-approved/15 text-status-approved",
   ORDERED: "bg-status-ordered/15 text-status-ordered",
   SHIPPED: "bg-status-shipped/15 text-status-shipped",
+  READY_FOR_PICKUP: "bg-status-shipped/15 text-status-shipped",
   RECEIVED: "bg-status-received/15 text-status-received",
   CANCELLED: "bg-status-cancelled/15 text-status-cancelled",
 };
