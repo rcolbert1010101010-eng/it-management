@@ -13,6 +13,7 @@ const orderStatusLabels: Record<string, string> = {
   APPROVED: "Approved",
   ORDERED: "Ordered",
   SHIPPED: "Shipped",
+  READY_FOR_PICKUP: "Ready For Pickup",
   RECEIVED: "Received",
   CANCELLED: "Cancelled",
 };
