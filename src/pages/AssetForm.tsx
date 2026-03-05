@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -38,8 +39,11 @@ export default function AssetForm() {
     purchase_date: "",
     warranty_end_date: "",
     notes: "",
+    is_consumable: false,
   });
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
+  const [showCustomCategory, setShowCustomCategory] = useState(false);
 
   const { isLoading: loadingAsset } = useQuery({
     queryKey: ["asset", id],
@@ -54,9 +58,10 @@ export default function AssetForm() {
     queryKey: ["asset-form", id],
     queryFn: async () => {
       const asset = await fetchAsset(id!);
+      const isKnownCategory = (ASSET_CATEGORIES as readonly string[]).includes(asset.category);
       setForm({
-        asset_tag: asset.asset_tag,
-        category: asset.category,
+        asset_tag: asset.asset_tag || "",
+        category: isKnownCategory ? asset.category : "custom",
         status: asset.status,
         manufacturer: asset.manufacturer || "",
         model: asset.model || "",
@@ -67,7 +72,12 @@ export default function AssetForm() {
         purchase_date: asset.purchase_date || "",
         warranty_end_date: asset.warranty_end_date || "",
         notes: asset.notes || "",
+        is_consumable: asset.is_consumable || false,
       });
+      if (!isKnownCategory) {
+        setShowCustomCategory(true);
+        setCustomCategory(asset.category);
+      }
       return asset;
     },
     enabled: isEdit,
@@ -75,8 +85,11 @@ export default function AssetForm() {
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const resolvedCategory = showCustomCategory ? customCategory : form.category;
       const data = {
         ...form,
+        asset_tag: form.is_consumable ? (form.asset_tag || null) : form.asset_tag,
+        category: resolvedCategory || "other",
         purchase_date: form.purchase_date || null,
         warranty_end_date: form.warranty_end_date || null,
         manufacturer: form.manufacturer || null,
@@ -101,8 +114,19 @@ export default function AssetForm() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const update = (field: string, value: string) =>
+  const update = (field: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+
+  const handleCategoryChange = (value: string) => {
+    if (value === "custom") {
+      setShowCustomCategory(true);
+      update("category", "custom");
+    } else {
+      setShowCustomCategory(false);
+      setCustomCategory("");
+      update("category", value);
+    }
+  };
 
   return (
     <div>
@@ -114,6 +138,14 @@ export default function AssetForm() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (!form.is_consumable && !form.asset_tag) {
+            toast.error("Asset Tag is required for non-consumable items.");
+            return;
+          }
+          if (showCustomCategory && !customCategory.trim()) {
+            toast.error("Please enter a custom category name.");
+            return;
+          }
           mutation.mutate();
         }}
         className="max-w-2xl space-y-6"
@@ -121,22 +153,38 @@ export default function AssetForm() {
         <div className="rounded-lg border bg-card p-6 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <Label htmlFor="asset_tag">Asset Tag *</Label>
+              <Label htmlFor="asset_tag">
+                Asset Tag {!form.is_consumable && "*"}
+              </Label>
               <div className="flex gap-2">
                 <Input
                   id="asset_tag"
-                  required
+                  required={!form.is_consumable}
                   value={form.asset_tag || ""}
                   onChange={(e) => update("asset_tag", e.target.value)}
+                  placeholder={form.is_consumable ? "Optional for consumables" : ""}
                 />
                 <Button type="button" variant="outline" onClick={() => setScannerOpen(true)}>
                   Scan
                 </Button>
               </div>
+              <div className="flex items-center gap-2 mt-2">
+                <Checkbox
+                  id="is_consumable"
+                  checked={form.is_consumable || false}
+                  onCheckedChange={(checked) => update("is_consumable", !!checked)}
+                />
+                <Label htmlFor="is_consumable" className="text-sm font-normal cursor-pointer">
+                  Consumable
+                </Label>
+              </div>
             </div>
             <div>
               <Label htmlFor="category">Category *</Label>
-              <Select value={form.category || "laptop"} onValueChange={(v) => update("category", v)}>
+              <Select
+                value={showCustomCategory ? "custom" : (form.category || "laptop")}
+                onValueChange={handleCategoryChange}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -146,8 +194,18 @@ export default function AssetForm() {
                       {c.charAt(0).toUpperCase() + c.slice(1)}
                     </SelectItem>
                   ))}
+                  <SelectItem value="custom">+ Add Custom...</SelectItem>
                 </SelectContent>
               </Select>
+              {showCustomCategory && (
+                <Input
+                  className="mt-2"
+                  placeholder="Enter custom category"
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                  autoFocus
+                />
+              )}
             </div>
             <div>
               <Label htmlFor="status">Status</Label>
