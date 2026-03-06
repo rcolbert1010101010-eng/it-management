@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { createAsset, updateAsset, fetchAsset, ASSET_CATEGORIES, ASSET_STATUSES, type AssetInsert } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
@@ -45,6 +46,26 @@ export default function AssetForm() {
   const [customCategory, setCustomCategory] = useState("");
   const [showCustomCategory, setShowCustomCategory] = useState(false);
 
+  // Fetch all distinct categories from the database
+  const { data: dbCategories } = useQuery({
+    queryKey: ["asset-categories"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("assets")
+        .select("category")
+        .order("category");
+      if (error) throw error;
+      const unique = [...new Set(data.map((r) => r.category))];
+      return unique;
+    },
+  });
+
+  const allCategories = useMemo(() => {
+    const defaults = [...ASSET_CATEGORIES] as string[];
+    const extras = (dbCategories || []).filter((c) => !defaults.includes(c));
+    return [...defaults, ...extras];
+  }, [dbCategories]);
+
   const { isLoading: loadingAsset } = useQuery({
     queryKey: ["asset", id],
     queryFn: () => fetchAsset(id!),
@@ -58,7 +79,7 @@ export default function AssetForm() {
     queryKey: ["asset-form", id],
     queryFn: async () => {
       const asset = await fetchAsset(id!);
-      const isKnownCategory = (ASSET_CATEGORIES as readonly string[]).includes(asset.category);
+      const isKnownCategory = allCategories.includes(asset.category);
       setForm({
         asset_tag: asset.asset_tag || "",
         category: isKnownCategory ? asset.category : "custom",
@@ -108,6 +129,7 @@ export default function AssetForm() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["assets"] });
       queryClient.invalidateQueries({ queryKey: ["asset", id] });
+      queryClient.invalidateQueries({ queryKey: ["asset-categories"] });
       toast.success(isEdit ? "Asset updated" : "Asset created");
       navigate(`/assets/${result.id}`);
     },
@@ -189,7 +211,7 @@ export default function AssetForm() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ASSET_CATEGORIES.map((c) => (
+                  {allCategories.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c.charAt(0).toUpperCase() + c.slice(1)}
                     </SelectItem>
