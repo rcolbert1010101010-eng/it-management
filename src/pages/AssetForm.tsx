@@ -129,6 +129,7 @@ export default function AssetForm() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["assets"] });
       queryClient.invalidateQueries({ queryKey: ["asset", id] });
+      queryClient.invalidateQueries({ queryKey: ["asset-categories"] });
       toast.success(isEdit ? "Asset updated" : "Asset created");
       navigate(`/assets/${result.id}`);
     },
