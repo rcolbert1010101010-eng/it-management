@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { fetchOrders, ORDER_STATUSES } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -72,8 +73,27 @@ export default function OrderList() {
         search: search || undefined,
         status: status || undefined,
       });
-      if (!vendor) return data;
-      return data.filter((order) => order.vendor_name === vendor);
+      const filtered = vendor ? data.filter((order) => order.vendor_name === vendor) : data;
+
+      // Fetch line items for all orders
+      const orderIds = filtered.map((o) => o.id);
+      if (orderIds.length === 0) return filtered.map((o) => ({ ...o, line_items_summary: "" }));
+
+      const { data: lineItems } = await supabase
+        .from("order_line_items")
+        .select("order_id, item_name, quantity")
+        .in("order_id", orderIds);
+
+      const itemsByOrder = (lineItems || []).reduce<Record<string, string[]>>((acc, li) => {
+        if (!acc[li.order_id]) acc[li.order_id] = [];
+        acc[li.order_id].push(li.quantity > 1 ? `${li.item_name} (×${li.quantity})` : li.item_name);
+        return acc;
+      }, {});
+
+      return filtered.map((o) => ({
+        ...o,
+        line_items_summary: itemsByOrder[o.id]?.join(", ") || "",
+      }));
     },
   });
   const isEmpty = !isLoading && (orders?.length ?? 0) === 0;
@@ -135,6 +155,7 @@ export default function OrderList() {
               <TableRow>
                 <TableHead>Order #</TableHead>
                 <TableHead>Vendor</TableHead>
+                <TableHead>Items</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Order Date</TableHead>
                 <TableHead>Expected Delivery</TableHead>
@@ -144,7 +165,7 @@ export default function OrderList() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
@@ -160,6 +181,9 @@ export default function OrderList() {
                       </Link>
                     </TableCell>
                     <TableCell>{order.vendor_name}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm max-w-[250px] truncate">
+                      {order.line_items_summary || "—"}
+                    </TableCell>
                     <TableCell>
                       <StatusBadge kind="order" value={order.status} />
                     </TableCell>
