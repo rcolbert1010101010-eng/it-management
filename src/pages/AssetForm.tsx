@@ -211,7 +211,7 @@ export default function AssetForm() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ASSET_CATEGORIES.map((c) => (
+                  {allCategories.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c.charAt(0).toUpperCase() + c.slice(1)}
                     </SelectItem>
