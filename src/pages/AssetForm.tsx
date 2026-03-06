@@ -46,6 +46,26 @@ export default function AssetForm() {
   const [customCategory, setCustomCategory] = useState("");
   const [showCustomCategory, setShowCustomCategory] = useState(false);
 
+  // Fetch all distinct categories from the database
+  const { data: dbCategories } = useQuery({
+    queryKey: ["asset-categories"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("assets")
+        .select("category")
+        .order("category");
+      if (error) throw error;
+      const unique = [...new Set(data.map((r) => r.category))];
+      return unique;
+    },
+  });
+
+  const allCategories = useMemo(() => {
+    const defaults = [...ASSET_CATEGORIES] as string[];
+    const extras = (dbCategories || []).filter((c) => !defaults.includes(c));
+    return [...defaults, ...extras];
+  }, [dbCategories]);
+
   const { isLoading: loadingAsset } = useQuery({
     queryKey: ["asset", id],
     queryFn: () => fetchAsset(id!),
