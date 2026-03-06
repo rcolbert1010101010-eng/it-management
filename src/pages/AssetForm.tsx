@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { createAsset, updateAsset, fetchAsset, ASSET_CATEGORIES, ASSET_STATUSES, type AssetInsert } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
