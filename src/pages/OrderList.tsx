@@ -165,7 +165,7 @@ export default function OrderList() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
@@ -181,6 +181,9 @@ export default function OrderList() {
                       </Link>
                     </TableCell>
                     <TableCell>{order.vendor_name}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm max-w-[250px] truncate">
+                      {order.line_items_summary || "—"}
+                    </TableCell>
                     <TableCell>
                       <StatusBadge kind="order" value={order.status} />
                     </TableCell>
