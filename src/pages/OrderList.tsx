@@ -73,8 +73,27 @@ export default function OrderList() {
         search: search || undefined,
         status: status || undefined,
       });
-      if (!vendor) return data;
-      return data.filter((order) => order.vendor_name === vendor);
+      const filtered = vendor ? data.filter((order) => order.vendor_name === vendor) : data;
+
+      // Fetch line items for all orders
+      const orderIds = filtered.map((o) => o.id);
+      if (orderIds.length === 0) return filtered.map((o) => ({ ...o, line_items_summary: "" }));
+
+      const { data: lineItems } = await supabase
+        .from("order_line_items")
+        .select("order_id, item_name, quantity")
+        .in("order_id", orderIds);
+
+      const itemsByOrder = (lineItems || []).reduce<Record<string, string[]>>((acc, li) => {
+        if (!acc[li.order_id]) acc[li.order_id] = [];
+        acc[li.order_id].push(li.quantity > 1 ? `${li.item_name} (×${li.quantity})` : li.item_name);
+        return acc;
+      }, {});
+
+      return filtered.map((o) => ({
+        ...o,
+        line_items_summary: itemsByOrder[o.id]?.join(", ") || "",
+      }));
     },
   });
   const isEmpty = !isLoading && (orders?.length ?? 0) === 0;
