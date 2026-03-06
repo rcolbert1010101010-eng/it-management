@@ -79,7 +79,7 @@ export default function AssetForm() {
     queryKey: ["asset-form", id],
     queryFn: async () => {
       const asset = await fetchAsset(id!);
-      const isKnownCategory = (ASSET_CATEGORIES as readonly string[]).includes(asset.category);
+      const isKnownCategory = allCategories.includes(asset.category);
       setForm({
         asset_tag: asset.asset_tag || "",
         category: isKnownCategory ? asset.category : "custom",
