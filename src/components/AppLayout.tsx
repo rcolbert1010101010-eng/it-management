@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import { BarChart3, LayoutDashboard, Monitor, ShoppingCart, FileText, User, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAppStore } from "@/lib/store";
 
