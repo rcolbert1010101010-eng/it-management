@@ -22,13 +22,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { performedBy, setPerformedBy } = useAppStore();
   const [hasSession, setHasSession] = useState(false);
+  const [displayName, setDisplayName] = useState("");
 
   useEffect(() => {
     let active = true;
-    supabase.auth.getSession().then(({ data }) => {
+
+    const loadProfile = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       if (!active) return;
-      setHasSession(!!data.session);
-    });
+      setHasSession(!!session);
+      if (session?.user) {
+        const { data } = await supabase
+          .from("profiles")
+          .select("display_name")
+          .eq("id", session.user.id)
+          .single();
+        const name = data?.display_name || session.user.email || "system";
+        setDisplayName(name);
+        setPerformedBy(name);
+      }
+    };
+
+    loadProfile();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
