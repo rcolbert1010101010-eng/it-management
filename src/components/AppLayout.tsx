@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { BarChart3, LayoutDashboard, Monitor, ShoppingCart, FileText, User } from "lucide-react";
+import { BarChart3, LayoutDashboard, Monitor, ShoppingCart, FileText, User, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
