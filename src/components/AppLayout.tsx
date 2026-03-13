@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { BarChart3, LayoutDashboard, Monitor, ShoppingCart, FileText, User } from "lucide-react";
+import { BarChart3, LayoutDashboard, Monitor, ShoppingCart, FileText, User, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAppStore } from "@/lib/store";
@@ -14,6 +13,7 @@ const navItems = [
   { to: "/orders", label: "Orders", icon: ShoppingCart },
   { to: "/audit-log", label: "Audit Log", icon: FileText },
   { to: "/reports", label: "Reports", icon: BarChart3 },
+  { to: "/users", label: "Users", icon: Users },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -21,13 +21,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { performedBy, setPerformedBy } = useAppStore();
   const [hasSession, setHasSession] = useState(false);
+  const [displayName, setDisplayName] = useState("");
 
   useEffect(() => {
     let active = true;
-    supabase.auth.getSession().then(({ data }) => {
+
+    const loadProfile = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       if (!active) return;
-      setHasSession(!!data.session);
-    });
+      setHasSession(!!session);
+      if (session?.user) {
+        const { data } = await supabase
+          .from("profiles")
+          .select("display_name")
+          .eq("id", session.user.id)
+          .single();
+        const name = data?.display_name || session.user.email || "system";
+        setDisplayName(name);
+        setPerformedBy(name);
+      }
+    };
+
+    loadProfile();
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
@@ -55,12 +70,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="text-lg font-semibold text-foreground">IT Management</div>
           <div className="ml-auto flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground" />
-            <Input
-              className="h-8 w-40 text-sm"
-              placeholder="Your name"
-              value={performedBy}
-              onChange={(e) => setPerformedBy(e.target.value)}
-            />
+            <span className="text-sm text-muted-foreground">{displayName}</span>
             <ThemeToggle />
             {hasSession ? (
               <Button variant="outline" size="sm" onClick={handleSignOut}>

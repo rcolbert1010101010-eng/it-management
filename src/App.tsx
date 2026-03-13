@@ -15,6 +15,7 @@ import OrderDetail from "@/pages/OrderDetail";
 import OrderForm from "@/pages/OrderForm";
 import AuditLog from "@/pages/AuditLog";
 import Reports from "@/pages/Reports";
+import UserManagement from "@/pages/UserManagement";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App = () => (
               <Route path="/orders/:id/edit" element={<OrderForm />} />
               <Route path="/audit-log" element={<AuditLog />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/users" element={<UserManagement />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Route>
