@@ -15,6 +15,8 @@ import OrderDetail from "@/pages/OrderDetail";
 import OrderForm from "@/pages/OrderForm";
 import AuditLog from "@/pages/AuditLog";
 import Reports from "@/pages/Reports";
+import UserManagement from "@/pages/UserManagement";
+import NotFound from "@/pages/NotFound";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
