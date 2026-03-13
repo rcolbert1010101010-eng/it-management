@@ -71,12 +71,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="text-lg font-semibold text-foreground">IT Management</div>
           <div className="ml-auto flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground" />
-            <Input
-              className="h-8 w-40 text-sm"
-              placeholder="Your name"
-              value={performedBy}
-              onChange={(e) => setPerformedBy(e.target.value)}
-            />
+            <span className="text-sm text-muted-foreground">{displayName}</span>
             <ThemeToggle />
             {hasSession ? (
               <Button variant="outline" size="sm" onClick={handleSignOut}>
