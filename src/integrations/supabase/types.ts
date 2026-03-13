@@ -214,6 +214,30 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          is_admin: boolean
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+          is_admin?: boolean
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          is_admin?: boolean
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
