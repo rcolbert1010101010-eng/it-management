@@ -5,6 +5,7 @@ import { BarChart3, LayoutDashboard, Monitor, ShoppingCart, FileText, User } fro
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAppStore } from "@/lib/store";
 
 const navItems = [
@@ -60,6 +61,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               value={performedBy}
               onChange={(e) => setPerformedBy(e.target.value)}
             />
+            <ThemeToggle />
             {hasSession ? (
               <Button variant="outline" size="sm" onClick={handleSignOut}>
                 Sign out
