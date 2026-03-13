@@ -200,7 +200,7 @@ export default function UserManagement() {
                 <TableCell className="font-medium">{u.display_name}</TableCell>
                 <TableCell>{u.email}</TableCell>
                 <TableCell>
-                  <StatusBadge status={u.is_admin ? "ADMIN" : "USER"} />
+                  <Badge variant={u.is_admin ? "default" : "secondary"}>{u.is_admin ? "Admin" : "User"}</Badge>
                 </TableCell>
                 <TableCell>{new Date(u.created_at).toLocaleDateString()}</TableCell>
                 <TableCell>
