@@ -160,7 +160,7 @@ export default function OrderList() {
                 <TableHead>Status</TableHead>
                 <TableHead>Order Date</TableHead>
                 <TableHead>Expected Delivery</TableHead>
-                <TableHead>Requested By</TableHead>
+                <TableHead>Requested For</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

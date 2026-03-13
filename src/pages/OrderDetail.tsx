@@ -146,7 +146,7 @@ export default function OrderDetail() {
     { label: "Vendor", value: order.vendor_name },
     { label: "Vendor Contact", value: order.vendor_contact },
     { label: "Status", value: <StatusBadge kind="order" value={order.status} /> },
-    { label: "Requested By", value: order.requested_by_name },
+    { label: "Requested For", value: order.requested_by_name },
     { label: "Requester Email", value: order.requested_by_email },
     { label: "Order Date", value: order.order_date ? format(new Date(order.order_date), "MMM d, yyyy") : null },
     { label: "Expected Delivery", value: order.expected_delivery_date ? format(new Date(order.expected_delivery_date), "MMM d, yyyy") : null },

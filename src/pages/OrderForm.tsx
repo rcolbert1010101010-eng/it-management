@@ -227,7 +227,7 @@ export default function OrderForm() {
               />
             </div>
             <div>
-              <Label htmlFor="requested_by_name">Requested By (Name)</Label>
+              <Label htmlFor="requested_by_name">Requested For (Name)</Label>
               <Input
                 id="requested_by_name"
                 value={form.requested_by_name || ""}
@@ -235,7 +235,7 @@ export default function OrderForm() {
               />
             </div>
             <div>
-              <Label htmlFor="requested_by_email">Requested By (Email)</Label>
+              <Label htmlFor="requested_by_email">Requested For (Email)</Label>
               <Input
                 id="requested_by_email"
                 type="email"
