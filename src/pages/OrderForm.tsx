@@ -11,6 +11,7 @@ import {
   type OrderInsert,
   type OrderLineItemInsert,
 } from "@/lib/api";
+import { getOrderStatusLabel } from "@/lib/status";
 import { useAppStore } from "@/lib/store";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -202,7 +203,7 @@ export default function OrderForm() {
                 <SelectContent>
                   {ORDER_STATUSES.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {s}
+                      {getOrderStatusLabel(s)}
                     </SelectItem>
                   ))}
                 </SelectContent>

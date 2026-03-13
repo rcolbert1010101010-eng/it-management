@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { fetchOrders, ORDER_STATUSES } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
+import { getOrderStatusLabel } from "@/lib/status";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -127,7 +128,7 @@ export default function OrderList() {
             <SelectItem value="ALL">All Statuses</SelectItem>
             {ORDER_STATUSES.map((s) => (
               <SelectItem key={s} value={s}>
-                {s}
+                {getOrderStatusLabel(s)}
               </SelectItem>
             ))}
           </SelectContent>

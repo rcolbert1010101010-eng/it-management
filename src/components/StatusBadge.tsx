@@ -1,22 +1,6 @@
 import { Badge } from "@/components/ui/badge";
+import { getAssetStatusLabel, getOrderStatusLabel } from "@/lib/status";
 import { cn } from "@/lib/utils";
-
-const assetStatusLabels: Record<string, string> = {
-  IN_STOCK: "Available",
-  ASSIGNED: "Assigned",
-  IN_REPAIR: "In repair",
-  RETIRED: "Retired",
-};
-
-const orderStatusLabels: Record<string, string> = {
-  REQUESTED: "Requested",
-  APPROVED: "Approved",
-  ORDERED: "Ordered",
-  SHIPPED: "Shipped",
-  READY_FOR_PICKUP: "Ready For Pickup",
-  RECEIVED: "Received",
-  CANCELLED: "Cancelled",
-};
 
 const assetStatusColors: Record<string, string> = {
   IN_STOCK: "bg-status-in-stock/15 text-status-in-stock",
@@ -35,13 +19,6 @@ const orderStatusColors: Record<string, string> = {
   CANCELLED: "bg-status-cancelled/15 text-status-cancelled",
 };
 
-const formatFallback = (value: string) =>
-  value
-    .toLowerCase()
-    .split("_")
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ");
-
 export function StatusBadge({
   kind,
   value,
@@ -49,9 +26,8 @@ export function StatusBadge({
   kind: "asset" | "order";
   value: string;
 }) {
-  const labels = kind === "asset" ? assetStatusLabels : orderStatusLabels;
   const colors = kind === "asset" ? assetStatusColors : orderStatusColors;
-  const label = labels[value] ?? formatFallback(value);
+  const label = kind === "asset" ? getAssetStatusLabel(value) : getOrderStatusLabel(value);
 
   return (
     <Badge className={cn("border-transparent", colors[value] || "bg-muted text-muted-foreground")}>
