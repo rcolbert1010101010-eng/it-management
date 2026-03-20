@@ -22,6 +22,35 @@ export const ORDER_STATUSES = [
   "REQUESTED", "APPROVED", "ORDERED", "SHIPPED", "READY_FOR_PICKUP", "RECEIVED", "CANCELLED",
 ] as const;
 
+const ASSET_SELECT = [
+  "id",
+  "asset_tag",
+  "assigned_to_email",
+  "assigned_to_name",
+  "category",
+  "created_at",
+  "is_consumable",
+  "location",
+  "manufacturer",
+  "model",
+  "notes",
+  "purchase_date",
+  "quantity_on_hand",
+  "serial_number",
+  "source_order_id",
+  "source_order_line_item_id",
+  "status",
+  "updated_at",
+  "warranty_end_date",
+].join(",");
+
+function normalizeQuantityOnHand(value: number | null | undefined, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.trunc(value));
+}
+
 // ---- Assets ----
 
 export async function fetchAssets(params?: {
@@ -29,7 +58,7 @@ export async function fetchAssets(params?: {
   status?: string;
   category?: string;
 }) {
-  let query = supabase.from("assets").select("*").order("created_at", { ascending: false });
+  let query = supabase.from("assets").select(ASSET_SELECT).order("created_at", { ascending: false });
 
   if (params?.status) {
     query = query.eq("status", params.status);
@@ -48,16 +77,25 @@ export async function fetchAssets(params?: {
 }
 
 export async function fetchAsset(id: string) {
-  const { data, error } = await supabase.from("assets").select("*").eq("id", id).single();
+  const { data, error } = await supabase.from("assets").select(ASSET_SELECT).eq("id", id).single();
   if (error) throw error;
   return data;
 }
 
 export async function createAsset(asset: AssetInsert, performedBy: string) {
-  const { data, error } = await supabase.from("assets").insert(asset).select().single();
+  const defaultQuantity = 1;
+  const payload: AssetInsert = {
+    ...asset,
+    is_consumable: asset.is_consumable ?? false,
+    quantity_on_hand: normalizeQuantityOnHand(asset.quantity_on_hand, defaultQuantity),
+  };
+  const { data, error } = await supabase.from("assets").insert(payload).select(ASSET_SELECT).single();
   if (error) {
     if (error.code === "23505") {
       throw new Error("An asset with this asset tag already exists.");
+    }
+    if (error.code === "23514") {
+      throw new Error("Quantity On Hand must be a non-negative whole number.");
     }
     throw error;
   }
@@ -66,11 +104,32 @@ export async function createAsset(asset: AssetInsert, performedBy: string) {
 }
 
 export async function updateAsset(id: string, updates: AssetUpdate, performedBy: string) {
-  const { data: old } = await supabase.from("assets").select("status").eq("id", id).single();
-  const { data, error } = await supabase.from("assets").update(updates).eq("id", id).select().single();
+  const { data: old, error: fetchOldError } = await supabase
+    .from("assets")
+    .select("status,is_consumable,quantity_on_hand")
+    .eq("id", id)
+    .single();
+  if (fetchOldError) throw fetchOldError;
+
+  const nextIsConsumable = updates.is_consumable ?? old.is_consumable;
+  const defaultQuantity = nextIsConsumable ? old.quantity_on_hand : 1;
+  const payload: AssetUpdate = {
+    ...updates,
+    quantity_on_hand: normalizeQuantityOnHand(updates.quantity_on_hand, defaultQuantity),
+  };
+
+  const { data, error } = await supabase
+    .from("assets")
+    .update(payload)
+    .eq("id", id)
+    .select(ASSET_SELECT)
+    .single();
   if (error) {
     if (error.code === "23505") {
       throw new Error("An asset with this asset tag already exists.");
+    }
+    if (error.code === "23514") {
+      throw new Error("Quantity On Hand must be a non-negative whole number.");
     }
     throw error;
   }
@@ -222,12 +281,13 @@ export async function createAssetsFromLineItem(
     asset_tag: tag,
     category,
     model: lineItem.item_name,
+    quantity_on_hand: 1,
     source_order_id: orderId,
     source_order_line_item_id: lineItemId,
     status: "IN_STOCK",
   }));
 
-  const { data, error } = await supabase.from("assets").insert(assets).select();
+  const { data, error } = await supabase.from("assets").insert(assets).select(ASSET_SELECT);
   if (error) {
     if (error.code === "23505") throw new Error("One or more asset tags already exist.");
     throw error;

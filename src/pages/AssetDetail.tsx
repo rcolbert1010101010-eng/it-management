@@ -43,6 +43,7 @@ export default function AssetDetail() {
   const fields = [
     { label: "Asset Tag", value: asset.asset_tag },
     { label: "Category", value: asset.category, capitalize: true },
+    { label: "Quantity On Hand", value: asset.quantity_on_hand },
     { label: "Status", value: <StatusBadge kind="asset" value={asset.status} /> },
     { label: "Manufacturer", value: asset.manufacturer },
     { label: "Model", value: asset.model },

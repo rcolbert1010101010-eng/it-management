@@ -146,6 +146,7 @@ export default function AssetList() {
                 <TableHead>Asset Tag</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Model</TableHead>
+                <TableHead>Qty</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Assigned To</TableHead>
                 <TableHead>Location</TableHead>
@@ -154,7 +155,7 @@ export default function AssetList() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
@@ -173,6 +174,7 @@ export default function AssetList() {
                     <TableCell className="text-muted-foreground">
                       {[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "—"}
                     </TableCell>
+                    <TableCell>{asset.quantity_on_hand}</TableCell>
                     <TableCell>
                       <StatusBadge kind="asset" value={asset.status} />
                     </TableCell>

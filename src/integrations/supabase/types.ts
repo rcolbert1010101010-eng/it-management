@@ -28,6 +28,7 @@ export type Database = {
           model: string | null
           notes: string | null
           purchase_date: string | null
+          quantity_on_hand: number
           serial_number: string | null
           source_order_id: string | null
           source_order_line_item_id: string | null
@@ -48,6 +49,7 @@ export type Database = {
           model?: string | null
           notes?: string | null
           purchase_date?: string | null
+          quantity_on_hand?: number
           serial_number?: string | null
           source_order_id?: string | null
           source_order_line_item_id?: string | null
@@ -68,6 +70,7 @@ export type Database = {
           model?: string | null
           notes?: string | null
           purchase_date?: string | null
+          quantity_on_hand?: number
           serial_number?: string | null
           source_order_id?: string | null
           source_order_line_item_id?: string | null

@@ -41,6 +41,7 @@ export default function AssetForm() {
     warranty_end_date: "",
     notes: "",
     is_consumable: false,
+    quantity_on_hand: 1,
   });
   const [scannerOpen, setScannerOpen] = useState(false);
   const [customCategory, setCustomCategory] = useState("");
@@ -94,6 +95,7 @@ export default function AssetForm() {
         warranty_end_date: asset.warranty_end_date || "",
         notes: asset.notes || "",
         is_consumable: asset.is_consumable || false,
+        quantity_on_hand: asset.quantity_on_hand ?? 1,
       });
       if (!isKnownCategory) {
         setShowCustomCategory(true);
@@ -107,10 +109,15 @@ export default function AssetForm() {
   const mutation = useMutation({
     mutationFn: async () => {
       const resolvedCategory = showCustomCategory ? customCategory : form.category;
+      const parsedQuantity = Number(form.quantity_on_hand);
+      const quantityOnHand = Number.isInteger(parsedQuantity) && parsedQuantity >= 0
+        ? parsedQuantity
+        : 0;
       const data = {
         ...form,
         asset_tag: form.is_consumable ? (form.asset_tag || null) : form.asset_tag,
         category: resolvedCategory || "other",
+        quantity_on_hand: form.is_consumable ? quantityOnHand : 1,
         purchase_date: form.purchase_date || null,
         warranty_end_date: form.warranty_end_date || null,
         manufacturer: form.manufacturer || null,
@@ -136,8 +143,14 @@ export default function AssetForm() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const update = (field: string, value: string | boolean) =>
+  const update = (field: string, value: string | boolean | number) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+
+  const parseQuantityInput = (value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.max(0, parsed);
+  };
 
   const handleCategoryChange = (value: string) => {
     if (value === "custom") {
@@ -168,6 +181,11 @@ export default function AssetForm() {
             toast.error("Please enter a custom category name.");
             return;
           }
+          const parsedQuantity = Number(form.quantity_on_hand);
+          if (!Number.isInteger(parsedQuantity) || parsedQuantity < 0) {
+            toast.error("Quantity On Hand must be a non-negative whole number.");
+            return;
+          }
           mutation.mutate();
         }}
         className="max-w-2xl space-y-6"
@@ -194,7 +212,13 @@ export default function AssetForm() {
                 <Checkbox
                   id="is_consumable"
                   checked={form.is_consumable || false}
-                  onCheckedChange={(checked) => update("is_consumable", !!checked)}
+                  onCheckedChange={(checked) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      is_consumable: checked === true,
+                      quantity_on_hand: checked === true ? prev.quantity_on_hand ?? 1 : 1,
+                    }))
+                  }
                 />
                 <Label htmlFor="is_consumable" className="text-sm font-normal cursor-pointer">
                   Consumable
@@ -259,6 +283,24 @@ export default function AssetForm() {
                 value={form.manufacturer || ""}
                 onChange={(e) => update("manufacturer", e.target.value)}
               />
+            </div>
+            <div>
+              <Label htmlFor="quantity_on_hand">Quantity On Hand *</Label>
+              <Input
+                id="quantity_on_hand"
+                type="number"
+                min={0}
+                step={1}
+                required
+                disabled={!form.is_consumable}
+                value={form.quantity_on_hand ?? 1}
+                onChange={(e) => update("quantity_on_hand", parseQuantityInput(e.target.value))}
+              />
+              {!form.is_consumable && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Non-consumables default to 1.
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="model">Model</Label>
