@@ -99,6 +99,7 @@ export default function OrderDetail() {
       queryClient.invalidateQueries({ queryKey: ["order", id] });
       queryClient.invalidateQueries({ queryKey: ["order-line-items", id] });
       queryClient.invalidateQueries({ queryKey: ["audit", "ORDER", id] });
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
       setShowReceive(false);
       toast.success("Order marked as received");
     },
@@ -160,10 +161,10 @@ export default function OrderDetail() {
   return (
     <div>
       <PageHeader title={order.order_number} backTo="/orders">
-        {order.status !== "RECEIVED" && order.status !== "CANCELLED" && (
+        {order.status !== "CANCELLED" && (
           <Button variant="outline" onClick={openReceiveDialog}>
             <PackageCheck className="mr-1.5 h-4 w-4" />
-            Mark Received
+            {order.status === "RECEIVED" ? "Update Received" : "Mark Received"}
           </Button>
         )}
         <Button variant="outline" asChild>
@@ -306,12 +307,16 @@ export default function OrderDetail() {
                     max={li.quantity}
                     className="w-20"
                     value={receivedQtys[li.id] ?? 0}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const parsed = Number.parseInt(e.target.value, 10);
+                      const safe = Number.isFinite(parsed)
+                        ? Math.max(0, Math.min(li.quantity, parsed))
+                        : 0;
                       setReceivedQtys((prev) => ({
                         ...prev,
-                        [li.id]: parseInt(e.target.value) || 0,
-                      }))
-                    }
+                        [li.id]: safe,
+                      }));
+                    }}
                   />
                 </div>
               </div>

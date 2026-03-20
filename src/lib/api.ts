@@ -51,6 +51,13 @@ function normalizeQuantityOnHand(value: number | null | undefined, fallback: num
   return Math.max(0, Math.trunc(value));
 }
 
+function normalizeReceivedQuantity(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.trunc(value));
+}
+
 // ---- Assets ----
 
 export async function fetchAssets(params?: {
@@ -242,19 +249,157 @@ export async function upsertOrderLineItems(
   }
 }
 
-export async function markOrderReceived(
+async function applyConsumableInventoryDeltaForReceipt(
   orderId: string,
-  lineItemUpdates: { id: string; received_quantity: number }[],
+  lineItem: OrderLineItem,
+  desiredTotalReceived: number,
   performedBy: string
 ) {
+  if (desiredTotalReceived <= 0) return;
+
+  const { data: ledgerRow, error: ledgerReadError } = await supabase
+    .from("order_line_item_receipt_ledger")
+    .select("order_line_item_id,total_received_applied")
+    .eq("order_line_item_id", lineItem.id)
+    .maybeSingle();
+  if (ledgerReadError) throw ledgerReadError;
+
+  const alreadyApplied = normalizeReceivedQuantity(ledgerRow?.total_received_applied);
+  const delta = desiredTotalReceived - alreadyApplied;
+  if (delta <= 0) return;
+
+  const { data: existingConsumableAsset, error: assetLookupError } = await supabase
+    .from("assets")
+    .select(ASSET_SELECT)
+    .eq("source_order_id", orderId)
+    .eq("source_order_line_item_id", lineItem.id)
+    .eq("is_consumable", true)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (assetLookupError) throw assetLookupError;
+
+  let adjustedAsset: Asset;
+  let previousQuantityOnHand = 0;
+  let createdAsset = false;
+
+  if (existingConsumableAsset) {
+    previousQuantityOnHand = normalizeQuantityOnHand(existingConsumableAsset.quantity_on_hand, 0);
+    const { data: updatedAsset, error: updateAssetError } = await supabase
+      .from("assets")
+      .update({ quantity_on_hand: previousQuantityOnHand + delta })
+      .eq("id", existingConsumableAsset.id)
+      .select(ASSET_SELECT)
+      .single();
+    if (updateAssetError) throw updateAssetError;
+    adjustedAsset = updatedAsset;
+  } else {
+    const { data: insertedAsset, error: insertAssetError } = await supabase
+      .from("assets")
+      .insert({
+        asset_tag: null,
+        category: "other",
+        is_consumable: true,
+        model: lineItem.item_name,
+        notes: lineItem.notes || "Auto-created from received order line item",
+        quantity_on_hand: delta,
+        source_order_id: orderId,
+        source_order_line_item_id: lineItem.id,
+        status: "IN_STOCK",
+      })
+      .select(ASSET_SELECT)
+      .single();
+    if (insertAssetError) throw insertAssetError;
+    adjustedAsset = insertedAsset;
+    createdAsset = true;
+  }
+
+  const { error: ledgerWriteError } = await supabase
+    .from("order_line_item_receipt_ledger")
+    .upsert(
+      {
+        order_line_item_id: lineItem.id,
+        total_received_applied: desiredTotalReceived,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "order_line_item_id" }
+    );
+
+  if (ledgerWriteError) {
+    if (createdAsset) {
+      await supabase.from("assets").delete().eq("id", adjustedAsset.id);
+    } else {
+      await supabase
+        .from("assets")
+        .update({ quantity_on_hand: previousQuantityOnHand })
+        .eq("id", adjustedAsset.id);
+    }
+    throw ledgerWriteError;
+  }
+
+  await logAudit(
+    "ASSET",
+    adjustedAsset.id,
+    "QOH_INCREMENTED",
+    {
+      source_order_id: orderId,
+      source_order_line_item_id: lineItem.id,
+      line_item_name: lineItem.item_name,
+      delta,
+      previous_quantity_on_hand: previousQuantityOnHand,
+      quantity_on_hand: adjustedAsset.quantity_on_hand,
+      received_total_requested: desiredTotalReceived,
+      received_total_previously_applied: alreadyApplied,
+    },
+    performedBy
+  );
+}
+
+export async function markOrderReceived(
+  orderId: string,
+  lineItemUpdates: { id: string; received_quantity: number | null }[],
+  performedBy: string
+) {
+  const { data: currentOrder, error: currentOrderError } = await supabase
+    .from("orders")
+    .select("received_date")
+    .eq("id", orderId)
+    .single();
+  if (currentOrderError) throw currentOrderError;
+
+  const receivedDate = currentOrder.received_date || new Date().toISOString().split("T")[0];
   const { error: orderError } = await supabase
     .from("orders")
-    .update({ status: "RECEIVED", received_date: new Date().toISOString().split("T")[0] })
+    .update({ status: "RECEIVED", received_date: receivedDate })
     .eq("id", orderId);
   if (orderError) throw orderError;
 
   for (const li of lineItemUpdates) {
-    await supabase.from("order_line_items").update({ received_quantity: li.received_quantity }).eq("id", li.id);
+    const desiredTotalReceived = normalizeReceivedQuantity(li.received_quantity);
+
+    const { data: updatedLineItem, error: lineItemError } = await supabase
+      .from("order_line_items")
+      .update({ received_quantity: desiredTotalReceived })
+      .eq("id", li.id)
+      .eq("order_id", orderId)
+      .select("*")
+      .single();
+
+    if (lineItemError) {
+      throw lineItemError;
+    }
+
+    try {
+      await applyConsumableInventoryDeltaForReceipt(
+        orderId,
+        updatedLineItem,
+        desiredTotalReceived,
+        performedBy
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Unknown error";
+      throw new Error(`Failed inventory adjustment for line item "${updatedLineItem.item_name}": ${reason}`);
+    }
   }
 
   const { data: order } = await supabase.from("orders").select("order_number").eq("id", orderId).single();

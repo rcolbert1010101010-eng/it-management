@@ -166,6 +166,32 @@ export type Database = {
           },
         ]
       }
+      order_line_item_receipt_ledger: {
+        Row: {
+          order_line_item_id: string
+          total_received_applied: number
+          updated_at: string
+        }
+        Insert: {
+          order_line_item_id: string
+          total_received_applied?: number
+          updated_at?: string
+        }
+        Update: {
+          order_line_item_id?: string
+          total_received_applied?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_line_item_receipt_ledger_order_line_item_id_fkey"
+            columns: ["order_line_item_id"]
+            isOneToOne: true
+            referencedRelation: "order_line_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           created_at: string
