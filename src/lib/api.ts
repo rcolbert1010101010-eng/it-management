@@ -4,6 +4,8 @@ import type { Database, Json } from "@/integrations/supabase/types";
 export type Asset = Database["public"]["Tables"]["assets"]["Row"];
 export type AssetInsert = Database["public"]["Tables"]["assets"]["Insert"];
 export type AssetUpdate = Database["public"]["Tables"]["assets"]["Update"];
+export type Location = Database["public"]["Tables"]["locations"]["Row"];
+export type LocationInsert = Database["public"]["Tables"]["locations"]["Insert"];
 export type Order = Database["public"]["Tables"]["orders"]["Row"];
 export type OrderInsert = Database["public"]["Tables"]["orders"]["Insert"];
 export type OrderUpdate = Database["public"]["Tables"]["orders"]["Update"];
@@ -39,12 +41,27 @@ const ASSET_SELECT = [
   "purchase_date",
   "quantity_on_hand",
   "serial_number",
+  "specific_location",
   "source_order_id",
   "source_order_line_item_id",
   "status",
   "updated_at",
   "warranty_end_date",
 ].join(",");
+
+export function trimLocationName(value: string | null | undefined) {
+  return value?.trim() ?? "";
+}
+
+export function normalizeLocationName(value: string | null | undefined) {
+  return trimLocationName(value).toLowerCase();
+}
+
+export function findMatchingLocation(value: string | null | undefined, locations: Location[]) {
+  const normalized = normalizeLocationName(value);
+  if (!normalized) return null;
+  return locations.find((location) => normalizeLocationName(location.name) === normalized) ?? null;
+}
 
 function normalizeQuantityOnHand(value: number | null | undefined, fallback: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -58,6 +75,54 @@ function normalizeReceivedQuantity(value: number | null | undefined) {
     return 0;
   }
   return Math.max(0, Math.trunc(value));
+}
+
+export async function fetchLocations() {
+  const { data, error } = await supabase.from("locations").select("*").order("name", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function createLocation(name: string) {
+  const trimmedName = trimLocationName(name);
+  if (!trimmedName) {
+    throw new Error("Location is required.");
+  }
+
+  const { data: existingLocations, error: existingError } = await supabase
+    .from("locations")
+    .select("*")
+    .ilike("name", trimmedName);
+  if (existingError) throw existingError;
+
+  const existingLocation = existingLocations.find(
+    (location) => normalizeLocationName(location.name) === normalizeLocationName(trimmedName),
+  );
+  if (existingLocation) {
+    return existingLocation;
+  }
+
+  const payload: LocationInsert = { name: trimmedName };
+  const { data, error } = await supabase.from("locations").insert(payload).select("*").single();
+
+  if (error) {
+    if (error.code === "23505") {
+      const { data: duplicateRows, error: duplicateError } = await supabase
+        .from("locations")
+        .select("*")
+        .ilike("name", trimmedName);
+      if (duplicateError) throw duplicateError;
+
+      const duplicate = duplicateRows.find(
+        (location) => normalizeLocationName(location.name) === normalizeLocationName(trimmedName),
+      );
+      if (duplicate) return duplicate;
+    }
+
+    throw error;
+  }
+
+  return data;
 }
 
 // ---- Assets ----
@@ -96,7 +161,9 @@ export async function createAsset(asset: AssetInsert, performedBy: string) {
   const payload: AssetInsert = {
     ...asset,
     is_consumable: asset.is_consumable ?? false,
+    location: trimLocationName(asset.location) || null,
     quantity_on_hand: normalizeQuantityOnHand(asset.quantity_on_hand, defaultQuantity),
+    specific_location: trimLocationName(asset.specific_location) || null,
   };
   const { data, error } = await supabase.from("assets").insert(payload).select(ASSET_SELECT).single();
   if (error) {
@@ -124,7 +191,10 @@ export async function updateAsset(id: string, updates: AssetUpdate, performedBy:
   const defaultQuantity = nextIsConsumable ? old.quantity_on_hand : 1;
   const payload: AssetUpdate = {
     ...updates,
+    location: updates.location === undefined ? undefined : trimLocationName(updates.location) || null,
     quantity_on_hand: normalizeQuantityOnHand(updates.quantity_on_hand, defaultQuantity),
+    specific_location:
+      updates.specific_location === undefined ? undefined : trimLocationName(updates.specific_location) || null,
   };
 
   const { data, error } = await supabase

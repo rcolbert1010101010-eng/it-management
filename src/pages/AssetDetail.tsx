@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 const formatDateValue = (value: string | null) =>
   value ? format(parseISO(value), "MMM d, yyyy") : null;
 
+const isBlankText = (value: string | null | undefined) => !value || !value.trim();
+
 export default function AssetDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -72,11 +74,12 @@ export default function AssetDetail() {
     { label: "Serial Number", value: asset.serial_number },
     { label: "Assigned To", value: asset.assigned_to_name },
     { label: "Assigned Email", value: asset.assigned_to_email },
-    { label: "Location", value: asset.location },
+    { label: "Location", value: asset.location, hideWhenBlank: true },
+    { label: "Specific Location", value: asset.specific_location, hideWhenBlank: true },
     { label: "Purchase Date", value: formatDateValue(asset.purchase_date) },
     { label: "Warranty End", value: formatDateValue(asset.warranty_end_date) },
     { label: "Notes", value: asset.notes },
-  ];
+  ].filter(({ hideWhenBlank, value }) => !hideWhenBlank || !isBlankText(typeof value === "string" ? value : null));
 
   return (
     <div>

@@ -212,12 +212,13 @@ export default function AssetList() {
                 <TableHead>Compliance</TableHead>
                 <TableHead>Assigned To</TableHead>
                 <TableHead>Location</TableHead>
+                <TableHead>Specific Location</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={12} className="py-8 text-center text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
@@ -262,6 +263,7 @@ export default function AssetList() {
                       </TableCell>
                       <TableCell>{asset.assigned_to_name || "-"}</TableCell>
                       <TableCell className="text-muted-foreground">{asset.location || "-"}</TableCell>
+                      <TableCell className="text-muted-foreground">{asset.specific_location || "-"}</TableCell>
                     </TableRow>
                   );
                 })

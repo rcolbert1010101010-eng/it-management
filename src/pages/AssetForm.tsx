@@ -2,7 +2,18 @@ import { useState, useMemo } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
-import { createAsset, updateAsset, fetchAsset, ASSET_CATEGORIES, ASSET_STATUSES, type AssetInsert } from "@/lib/api";
+import {
+  createAsset,
+  updateAsset,
+  fetchAsset,
+  fetchLocations,
+  createLocation,
+  findMatchingLocation,
+  trimLocationName,
+  ASSET_CATEGORIES,
+  ASSET_STATUSES,
+  type AssetInsert,
+} from "@/lib/api";
 import {
   daysSinceLastLogin,
   daysUntilNetworkRemoval,
@@ -13,6 +24,7 @@ import { AssetLifecycleBadge } from "@/components/AssetLifecycleBadge";
 import { DatePickerField } from "@/components/DatePickerField";
 import { PageHeader } from "@/components/PageHeader";
 import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
+import { LocationSelectField } from "@/components/LocationSelectField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +57,7 @@ export default function AssetForm() {
     assigned_to_name: "",
     assigned_to_email: "",
     location: "",
+    specific_location: "",
     purchase_date: "",
     warranty_end_date: "",
     last_reimaged_date: "",
@@ -56,6 +69,7 @@ export default function AssetForm() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [customCategory, setCustomCategory] = useState("");
   const [showCustomCategory, setShowCustomCategory] = useState(false);
+  const [isCreatingLocation, setIsCreatingLocation] = useState(false);
 
   // Fetch all distinct categories from the database
   const { data: dbCategories } = useQuery({
@@ -76,6 +90,24 @@ export default function AssetForm() {
     const extras = (dbCategories || []).filter((c) => !defaults.includes(c));
     return [...defaults, ...extras];
   }, [dbCategories]);
+
+  const { data: locationRows = [] } = useQuery({
+    queryKey: ["locations"],
+    queryFn: fetchLocations,
+  });
+
+  const locationOptions = useMemo(() => {
+    const locations = [...locationRows];
+    const currentLocation = trimLocationName(form.location);
+    if (currentLocation && !findMatchingLocation(currentLocation, locations)) {
+      locations.push({
+        id: `legacy-${currentLocation.toLowerCase()}`,
+        name: currentLocation,
+        created_at: new Date(0).toISOString(),
+      });
+    }
+    return locations.sort((a, b) => a.name.localeCompare(b.name));
+  }, [form.location, locationRows]);
 
   useQuery({
     queryKey: ["asset", id],
@@ -101,6 +133,7 @@ export default function AssetForm() {
         assigned_to_name: asset.assigned_to_name || "",
         assigned_to_email: asset.assigned_to_email || "",
         location: asset.location || "",
+        specific_location: asset.specific_location || "",
         purchase_date: asset.purchase_date || "",
         warranty_end_date: asset.warranty_end_date || "",
         last_reimaged_date: asset.last_reimaged_date || "",
@@ -121,6 +154,8 @@ export default function AssetForm() {
   const mutation = useMutation({
     mutationFn: async () => {
       const resolvedCategory = showCustomCategory ? customCategory : form.category;
+      const resolvedLocation = findMatchingLocation(form.location, locationOptions)?.name
+        || trimLocationName(form.location);
       const parsedQuantity = Number(form.quantity_on_hand);
       const quantityOnHand = Number.isInteger(parsedQuantity) && parsedQuantity >= 0
         ? parsedQuantity
@@ -139,7 +174,8 @@ export default function AssetForm() {
         serial_number: form.serial_number || null,
         assigned_to_name: form.assigned_to_name || null,
         assigned_to_email: form.assigned_to_email || null,
-        location: form.location || null,
+        location: resolvedLocation || null,
+        specific_location: trimLocationName(form.specific_location) || null,
         notes: form.notes || null,
       };
       if (isEdit) {
@@ -174,6 +210,28 @@ export default function AssetForm() {
       setShowCustomCategory(false);
       setCustomCategory("");
       update("category", value);
+    }
+  };
+
+  const handleCreateLocation = async (value: string) => {
+    setIsCreatingLocation(true);
+    try {
+      const location = await createLocation(value);
+      queryClient.setQueryData(["locations"], (current: typeof locationRows | undefined) => {
+        const next = current ? [...current] : [];
+        if (!findMatchingLocation(location.name, next)) {
+          next.push(location);
+        }
+        return next.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      update("location", location.name);
+      toast.success(`Location "${location.name}" ready to use.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create location.";
+      toast.error(message);
+      throw error;
+    } finally {
+      setIsCreatingLocation(false);
     }
   };
 
@@ -349,10 +407,22 @@ export default function AssetForm() {
             </div>
             <div>
               <Label htmlFor="location">Location</Label>
-              <Input
+              <LocationSelectField
                 id="location"
                 value={form.location || ""}
-                onChange={(e) => update("location", e.target.value)}
+                options={locationOptions}
+                onValueChange={(value) => update("location", value)}
+                onCreateOption={handleCreateLocation}
+                isCreating={isCreatingLocation}
+              />
+            </div>
+            <div>
+              <Label htmlFor="specific_location">Specific Location</Label>
+              <Input
+                id="specific_location"
+                value={form.specific_location || ""}
+                onChange={(e) => update("specific_location", e.target.value)}
+                placeholder="Shelf, office, room, etc."
               />
             </div>
           </div>

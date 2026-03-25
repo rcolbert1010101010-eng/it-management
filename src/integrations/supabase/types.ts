@@ -32,6 +32,7 @@ export type Database = {
           purchase_date: string | null
           quantity_on_hand: number
           serial_number: string | null
+          specific_location: string | null
           source_order_id: string | null
           source_order_line_item_id: string | null
           status: string
@@ -55,6 +56,7 @@ export type Database = {
           purchase_date?: string | null
           quantity_on_hand?: number
           serial_number?: string | null
+          specific_location?: string | null
           source_order_id?: string | null
           source_order_line_item_id?: string | null
           status?: string
@@ -78,6 +80,7 @@ export type Database = {
           purchase_date?: string | null
           quantity_on_hand?: number
           serial_number?: string | null
+          specific_location?: string | null
           source_order_id?: string | null
           source_order_line_item_id?: string | null
           status?: string
@@ -100,6 +103,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      locations: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
       }
       audit_log: {
         Row: {
