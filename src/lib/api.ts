@@ -63,6 +63,21 @@ export function findMatchingLocation(value: string | null | undefined, locations
   return locations.find((location) => normalizeLocationName(location.name) === normalized) ?? null;
 }
 
+export function mergeLocations(locations: Location[]) {
+  const deduped = new Map<string, Location>();
+
+  for (const location of locations) {
+    const normalized = normalizeLocationName(location.name);
+    if (!normalized || deduped.has(normalized)) continue;
+    deduped.set(normalized, {
+      ...location,
+      name: trimLocationName(location.name),
+    });
+  }
+
+  return [...deduped.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function normalizeQuantityOnHand(value: number | null | undefined, fallback: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return fallback;
@@ -80,7 +95,7 @@ function normalizeReceivedQuantity(value: number | null | undefined) {
 export async function fetchLocations() {
   const { data, error } = await supabase.from("locations").select("*").order("name", { ascending: true });
   if (error) throw error;
-  return data;
+  return mergeLocations(data);
 }
 
 export async function createLocation(name: string) {
@@ -92,12 +107,10 @@ export async function createLocation(name: string) {
   const { data: existingLocations, error: existingError } = await supabase
     .from("locations")
     .select("*")
-    .ilike("name", trimmedName);
+    .order("name", { ascending: true });
   if (existingError) throw existingError;
 
-  const existingLocation = existingLocations.find(
-    (location) => normalizeLocationName(location.name) === normalizeLocationName(trimmedName),
-  );
+  const existingLocation = findMatchingLocation(trimmedName, mergeLocations(existingLocations));
   if (existingLocation) {
     return existingLocation;
   }
@@ -110,12 +123,10 @@ export async function createLocation(name: string) {
       const { data: duplicateRows, error: duplicateError } = await supabase
         .from("locations")
         .select("*")
-        .ilike("name", trimmedName);
+        .order("name", { ascending: true });
       if (duplicateError) throw duplicateError;
 
-      const duplicate = duplicateRows.find(
-        (location) => normalizeLocationName(location.name) === normalizeLocationName(trimmedName),
-      );
+      const duplicate = findMatchingLocation(trimmedName, mergeLocations(duplicateRows));
       if (duplicate) return duplicate;
     }
 

@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +13,10 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  createLocation,
   findMatchingLocation,
+  mergeLocations,
+  normalizeLocationName,
   trimLocationName,
   type Location,
 } from "@/lib/api";
@@ -23,9 +27,8 @@ type LocationSelectFieldProps = {
   value: string;
   options: Location[];
   onValueChange: (value: string) => void;
-  onCreateOption: (value: string) => Promise<void>;
+  onOptionsChange?: (options: Location[]) => void;
   disabled?: boolean;
-  isCreating?: boolean;
 };
 
 export function LocationSelectField({
@@ -33,35 +36,60 @@ export function LocationSelectField({
   value,
   options,
   onValueChange,
-  onCreateOption,
+  onOptionsChange,
   disabled = false,
-  isCreating = false,
 }: LocationSelectFieldProps) {
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [localOptions, setLocalOptions] = useState(() => mergeLocations(options));
+  const [isCreating, setIsCreating] = useState(false);
+
+  useEffect(() => {
+    setLocalOptions(mergeLocations(options));
+  }, [options]);
 
   const selectedLocation = useMemo(
-    () => findMatchingLocation(value, options),
-    [options, value],
+    () => findMatchingLocation(value, localOptions),
+    [localOptions, value],
   );
   const trimmedSearchValue = trimLocationName(searchValue);
   const matchingSearchLocation = useMemo(
-    () => findMatchingLocation(trimmedSearchValue, options),
-    [options, trimmedSearchValue],
+    () => findMatchingLocation(trimmedSearchValue, localOptions),
+    [localOptions, trimmedSearchValue],
   );
   const canCreate = Boolean(trimmedSearchValue) && !matchingSearchLocation;
 
   const handleSelect = (nextValue: string) => {
-    onValueChange(nextValue);
-    setSearchValue(nextValue);
+    const resolvedLocation = findMatchingLocation(nextValue, localOptions);
+    const resolvedValue = resolvedLocation?.name ?? trimLocationName(nextValue);
+    onValueChange(resolvedValue);
+    setSearchValue(resolvedValue);
     setOpen(false);
   };
 
   const handleCreate = async () => {
+    if (matchingSearchLocation) {
+      handleSelect(matchingSearchLocation.name);
+      return;
+    }
     if (!canCreate) return;
-    await onCreateOption(trimmedSearchValue);
-    setSearchValue(trimmedSearchValue);
-    setOpen(false);
+
+    setIsCreating(true);
+    try {
+      const location = await createLocation(trimmedSearchValue);
+      const nextOptions = mergeLocations([...localOptions, location]);
+      setLocalOptions(nextOptions);
+      onOptionsChange?.(nextOptions);
+      onValueChange(location.name);
+      setSearchValue(location.name);
+      setOpen(false);
+      toast.success(`Location "${location.name}" ready to use.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create location.";
+      toast.error(message);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -93,11 +121,30 @@ export function LocationSelectField({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <Command shouldFilter>
+        <Command
+          shouldFilter
+          filter={(itemValue, search) => {
+            const normalizedItem = normalizeLocationName(itemValue);
+            const normalizedSearch = normalizeLocationName(search);
+            if (!normalizedSearch) return 1;
+            return normalizedItem.includes(normalizedSearch) ? 1 : 0;
+          }}
+        >
           <CommandInput
             placeholder="Search locations..."
             value={searchValue}
             onValueChange={setSearchValue}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              if (matchingSearchLocation) {
+                handleSelect(matchingSearchLocation.name);
+                return;
+              }
+              if (canCreate) {
+                void handleCreate();
+              }
+            }}
           />
           <CommandList>
             <CommandEmpty>No matching locations.</CommandEmpty>
@@ -110,7 +157,7 @@ export function LocationSelectField({
               </CommandGroup>
             )}
             <CommandGroup heading="Locations">
-              {options.map((option) => {
+              {localOptions.map((option) => {
                 const isSelected = selectedLocation?.id === option.id;
                 return (
                   <CommandItem key={option.id} value={option.name} onSelect={() => handleSelect(option.name)}>

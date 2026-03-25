@@ -7,12 +7,13 @@ import {
   updateAsset,
   fetchAsset,
   fetchLocations,
-  createLocation,
   findMatchingLocation,
+  mergeLocations,
   trimLocationName,
   ASSET_CATEGORIES,
   ASSET_STATUSES,
   type AssetInsert,
+  type Location,
 } from "@/lib/api";
 import {
   daysSinceLastLogin,
@@ -69,7 +70,6 @@ export default function AssetForm() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [customCategory, setCustomCategory] = useState("");
   const [showCustomCategory, setShowCustomCategory] = useState(false);
-  const [isCreatingLocation, setIsCreatingLocation] = useState(false);
 
   // Fetch all distinct categories from the database
   const { data: dbCategories } = useQuery({
@@ -106,7 +106,7 @@ export default function AssetForm() {
         created_at: new Date(0).toISOString(),
       });
     }
-    return locations.sort((a, b) => a.name.localeCompare(b.name));
+    return mergeLocations(locations);
   }, [form.location, locationRows]);
 
   useQuery({
@@ -213,26 +213,9 @@ export default function AssetForm() {
     }
   };
 
-  const handleCreateLocation = async (value: string) => {
-    setIsCreatingLocation(true);
-    try {
-      const location = await createLocation(value);
-      queryClient.setQueryData(["locations"], (current: typeof locationRows | undefined) => {
-        const next = current ? [...current] : [];
-        if (!findMatchingLocation(location.name, next)) {
-          next.push(location);
-        }
-        return next.sort((a, b) => a.name.localeCompare(b.name));
-      });
-      update("location", location.name);
-      toast.success(`Location "${location.name}" ready to use.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create location.";
-      toast.error(message);
-      throw error;
-    } finally {
-      setIsCreatingLocation(false);
-    }
+  const handleLocationOptionsChange = (nextOptions: Location[]) => {
+    queryClient.setQueryData(["locations"], mergeLocations(nextOptions));
+    queryClient.invalidateQueries({ queryKey: ["locations"] });
   };
 
   const daysSinceLogin = daysSinceLastLogin(form.last_logged_in_date ?? null, today);
@@ -412,8 +395,7 @@ export default function AssetForm() {
                 value={form.location || ""}
                 options={locationOptions}
                 onValueChange={(value) => update("location", value)}
-                onCreateOption={handleCreateLocation}
-                isCreating={isCreatingLocation}
+                onOptionsChange={handleLocationOptionsChange}
               />
             </div>
             <div>
