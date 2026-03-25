@@ -3,7 +3,14 @@ import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { createAsset, updateAsset, fetchAsset, ASSET_CATEGORIES, ASSET_STATUSES, type AssetInsert } from "@/lib/api";
+import {
+  daysSinceLastLogin,
+  daysUntilNetworkRemoval,
+  getNetworkComplianceState,
+} from "@/lib/assetLifecycle";
 import { useAppStore } from "@/lib/store";
+import { AssetLifecycleBadge } from "@/components/AssetLifecycleBadge";
+import { DatePickerField } from "@/components/DatePickerField";
 import { PageHeader } from "@/components/PageHeader";
 import { BarcodeScannerDialog } from "@/components/BarcodeScannerDialog";
 import { Button } from "@/components/ui/button";
@@ -39,6 +46,8 @@ export default function AssetForm() {
     location: "",
     purchase_date: "",
     warranty_end_date: "",
+    last_reimaged_date: "",
+    last_logged_in_date: "",
     notes: "",
     is_consumable: false,
     quantity_on_hand: 1,
@@ -67,7 +76,7 @@ export default function AssetForm() {
     return [...defaults, ...extras];
   }, [dbCategories]);
 
-  const { isLoading: loadingAsset } = useQuery({
+  useQuery({
     queryKey: ["asset", id],
     queryFn: () => fetchAsset(id!),
     enabled: isEdit,
@@ -93,6 +102,8 @@ export default function AssetForm() {
         location: asset.location || "",
         purchase_date: asset.purchase_date || "",
         warranty_end_date: asset.warranty_end_date || "",
+        last_reimaged_date: asset.last_reimaged_date || "",
+        last_logged_in_date: asset.last_logged_in_date || "",
         notes: asset.notes || "",
         is_consumable: asset.is_consumable || false,
         quantity_on_hand: asset.quantity_on_hand ?? 1,
@@ -120,6 +131,8 @@ export default function AssetForm() {
         quantity_on_hand: form.is_consumable ? quantityOnHand : 1,
         purchase_date: form.purchase_date || null,
         warranty_end_date: form.warranty_end_date || null,
+        last_reimaged_date: form.last_reimaged_date || null,
+        last_logged_in_date: form.last_logged_in_date || null,
         manufacturer: form.manufacturer || null,
         model: form.model || null,
         serial_number: form.serial_number || null,
@@ -162,6 +175,10 @@ export default function AssetForm() {
       update("category", value);
     }
   };
+
+  const complianceState = getNetworkComplianceState(form.last_logged_in_date ?? null);
+  const daysSinceLogin = daysSinceLastLogin(form.last_logged_in_date ?? null);
+  const daysUntilRemoval = daysUntilNetworkRemoval(form.last_logged_in_date ?? null);
 
   return (
     <div>
@@ -343,21 +360,70 @@ export default function AssetForm() {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <Label htmlFor="purchase_date">Purchase Date</Label>
-              <Input
+              <DatePickerField
                 id="purchase_date"
-                type="date"
                 value={form.purchase_date || ""}
-                onChange={(e) => update("purchase_date", e.target.value)}
+                onChange={(value) => update("purchase_date", value)}
               />
             </div>
             <div>
               <Label htmlFor="warranty_end_date">Warranty End Date</Label>
-              <Input
+              <DatePickerField
                 id="warranty_end_date"
-                type="date"
                 value={form.warranty_end_date || ""}
-                onChange={(e) => update("warranty_end_date", e.target.value)}
+                onChange={(value) => update("warranty_end_date", value)}
               />
+            </div>
+          </div>
+
+          <div className="space-y-4 rounded-md border border-dashed p-4">
+            <div>
+              <h2 className="text-sm font-medium text-foreground">Lifecycle / Network Compliance</h2>
+              <p className="text-sm text-muted-foreground">
+                Track reimage activity and last network login without persisting derived counters.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label htmlFor="last_reimaged_date">Last Reimaged Date</Label>
+                <DatePickerField
+                  id="last_reimaged_date"
+                  value={form.last_reimaged_date || ""}
+                  onChange={(value) => update("last_reimaged_date", value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="last_logged_in_date">Last Logged In Date</Label>
+                <DatePickerField
+                  id="last_logged_in_date"
+                  value={form.last_logged_in_date || ""}
+                  onChange={(value) => update("last_logged_in_date", value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-1 rounded-md bg-muted/40 p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Compliance Status</p>
+                <AssetLifecycleBadge state={complianceState} />
+              </div>
+              <div className="space-y-1 rounded-md bg-muted/40 p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Days Since Last Login
+                </p>
+                <p className="text-sm font-medium text-foreground">
+                  {daysSinceLogin === null ? "Unknown" : daysSinceLogin}
+                </p>
+              </div>
+              <div className="space-y-1 rounded-md bg-muted/40 p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Days Until Network Removal
+                </p>
+                <p className="text-sm font-medium text-foreground">
+                  {daysUntilRemoval === null ? "Unknown" : daysUntilRemoval}
+                </p>
+              </div>
             </div>
           </div>
 

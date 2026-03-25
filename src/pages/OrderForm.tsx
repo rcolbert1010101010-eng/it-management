@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { getOrderStatusLabel } from "@/lib/status";
 import { useAppStore } from "@/lib/store";
+import { DatePickerField } from "@/components/DatePickerField";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,7 @@ export default function OrderForm() {
     status: "REQUESTED",
     order_date: "",
     expected_delivery_date: "",
+    received_date: "",
     shipping_tracking_number: "",
     notes: "",
   });
@@ -86,6 +88,7 @@ export default function OrderForm() {
         status: order.status,
         order_date: order.order_date || "",
         expected_delivery_date: order.expected_delivery_date || "",
+        received_date: order.received_date || "",
         shipping_tracking_number: order.shipping_tracking_number || "",
         notes: order.notes || "",
       });
@@ -113,6 +116,7 @@ export default function OrderForm() {
         ...form,
         order_date: form.order_date || null,
         expected_delivery_date: form.expected_delivery_date || null,
+        received_date: form.received_date || null,
         vendor_contact: form.vendor_contact || null,
         requested_by_name: form.requested_by_name || null,
         requested_by_email: form.requested_by_email || null,
@@ -245,20 +249,26 @@ export default function OrderForm() {
             </div>
             <div>
               <Label htmlFor="order_date">Order Date</Label>
-              <Input
+              <DatePickerField
                 id="order_date"
-                type="date"
                 value={form.order_date || ""}
-                onChange={(e) => update("order_date", e.target.value)}
+                onChange={(value) => update("order_date", value)}
               />
             </div>
             <div>
               <Label htmlFor="expected_delivery_date">Expected Delivery</Label>
-              <Input
+              <DatePickerField
                 id="expected_delivery_date"
-                type="date"
                 value={form.expected_delivery_date || ""}
-                onChange={(e) => update("expected_delivery_date", e.target.value)}
+                onChange={(value) => update("expected_delivery_date", value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="received_date">Received Date</Label>
+              <DatePickerField
+                id="received_date"
+                value={form.received_date || ""}
+                onChange={(value) => update("received_date", value)}
               />
             </div>
             <div>

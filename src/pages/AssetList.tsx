@@ -1,13 +1,22 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+﻿import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { format, parseISO } from "date-fns";
 import { Plus, Search } from "lucide-react";
 import { fetchAssets, ASSET_STATUSES, ASSET_CATEGORIES } from "@/lib/api";
+import {
+  daysSinceLastLogin,
+  daysUntilNetworkRemoval,
+  getNetworkComplianceState,
+  type NetworkComplianceState,
+} from "@/lib/assetLifecycle";
+import { AssetLifecycleBadge } from "@/components/AssetLifecycleBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -24,6 +33,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+const formatDateValue = (value: string | null) =>
+  value ? format(parseISO(value), "MMM d, yyyy") : "Unknown";
+
+const complianceCellColors: Record<NetworkComplianceState, string> = {
+  healthy: "text-emerald-700 dark:text-emerald-400",
+  warning: "text-amber-700 dark:text-amber-400",
+  overdue: "text-red-700 dark:text-red-400",
+  unknown: "text-slate-600 dark:text-slate-400",
+};
+
 const decodeParam = (value: string | null) => {
   if (value === null) return null;
   try {
@@ -39,16 +58,19 @@ export default function AssetList() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("");
   const [category, setCategory] = useState<string>("");
+  const [complianceFilter, setComplianceFilter] = useState<string>("");
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const statusParam = decodeParam(params.get("status"));
     const categoryParam = decodeParam(params.get("category"));
     const searchParam = decodeParam(params.get("q"));
+    const complianceParam = decodeParam(params.get("compliance"));
 
-    if (statusParam !== null) setStatus(statusParam);
-    if (categoryParam !== null) setCategory(categoryParam);
-    if (searchParam !== null) setSearch(searchParam);
+    setStatus(statusParam ?? "");
+    setCategory(categoryParam ?? "");
+    setSearch(searchParam ?? "");
+    setComplianceFilter(complianceParam ?? "");
   }, [location.search]);
 
   useEffect(() => {
@@ -56,13 +78,14 @@ export default function AssetList() {
     if (search) params.set("q", search);
     if (status) params.set("status", status);
     if (category) params.set("category", category);
+    if (complianceFilter) params.set("compliance", complianceFilter);
 
     const next = params.toString();
     const current = location.search.startsWith("?") ? location.search.slice(1) : location.search;
     if (next !== current) {
       navigate(next ? `?${next}` : "", { replace: true });
     }
-  }, [search, status, category, navigate, location.search]);
+  }, [search, status, category, complianceFilter, navigate, location.search]);
 
   const { data: assets, isLoading } = useQuery({
     queryKey: ["assets", search, status, category],
@@ -73,7 +96,26 @@ export default function AssetList() {
         category: category || undefined,
       }),
   });
-  const isEmpty = !isLoading && (assets?.length ?? 0) === 0;
+
+  const filteredAssets = useMemo(() => {
+    if (!assets) {
+      return [];
+    }
+
+    if (!complianceFilter) {
+      return assets;
+    }
+
+    return assets.filter((asset) => {
+      const state = getNetworkComplianceState(asset.last_logged_in_date);
+      if (complianceFilter === "warning") return state === "warning";
+      if (complianceFilter === "overdue") return state === "overdue";
+      if (complianceFilter === "unknown") return state === "unknown";
+      return true;
+    });
+  }, [assets, complianceFilter]);
+
+  const isEmpty = !isLoading && filteredAssets.length === 0;
 
   return (
     <div>
@@ -122,6 +164,20 @@ export default function AssetList() {
             ))}
           </SelectContent>
         </Select>
+        <Select
+          value={complianceFilter}
+          onValueChange={(v) => setComplianceFilter(v === "ALL" ? "" : v)}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="All Compliance States" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Compliance States</SelectItem>
+            <SelectItem value="warning">Warning (25-29 days)</SelectItem>
+            <SelectItem value="overdue">Needs Reimage (30+ days)</SelectItem>
+            <SelectItem value="unknown">Unknown Login Date</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {isEmpty ? (
@@ -139,7 +195,7 @@ export default function AssetList() {
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-lg border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -148,6 +204,10 @@ export default function AssetList() {
                 <TableHead>Model</TableHead>
                 <TableHead>Qty</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Last Logged In</TableHead>
+                <TableHead>Days Since Login</TableHead>
+                <TableHead>Days Until Removal</TableHead>
+                <TableHead>Compliance</TableHead>
                 <TableHead>Assigned To</TableHead>
                 <TableHead>Location</TableHead>
               </TableRow>
@@ -155,33 +215,51 @@ export default function AssetList() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : (
-                assets?.map((asset) => (
-                  <TableRow key={asset.id}>
-                    <TableCell>
-                      <Link
-                        to={`/assets/${asset.id}`}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        {asset.asset_tag}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="capitalize">{asset.category}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "—"}
-                    </TableCell>
-                    <TableCell>{asset.quantity_on_hand}</TableCell>
-                    <TableCell>
-                      <StatusBadge kind="asset" value={asset.status} />
-                    </TableCell>
-                    <TableCell>{asset.assigned_to_name || "—"}</TableCell>
-                    <TableCell className="text-muted-foreground">{asset.location || "—"}</TableCell>
-                  </TableRow>
-                ))
+                filteredAssets.map((asset) => {
+                  const complianceState = getNetworkComplianceState(asset.last_logged_in_date);
+                  const daysSinceLogin = daysSinceLastLogin(asset.last_logged_in_date);
+                  const daysUntilRemoval = daysUntilNetworkRemoval(asset.last_logged_in_date);
+
+                  return (
+                    <TableRow key={asset.id}>
+                      <TableCell>
+                        <Link
+                          to={`/assets/${asset.id}`}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {asset.asset_tag || "Not set"}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="capitalize">{asset.category}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "-"}
+                      </TableCell>
+                      <TableCell>{asset.quantity_on_hand}</TableCell>
+                      <TableCell>
+                        <StatusBadge kind="asset" value={asset.status} />
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDateValue(asset.last_logged_in_date)}
+                      </TableCell>
+                      <TableCell className={cn(complianceCellColors[complianceState])}>
+                        {daysSinceLogin === null ? "Unknown" : daysSinceLogin}
+                      </TableCell>
+                      <TableCell className={cn(complianceCellColors[complianceState])}>
+                        {daysUntilRemoval === null ? "Unknown" : daysUntilRemoval}
+                      </TableCell>
+                      <TableCell>
+                        <AssetLifecycleBadge state={complianceState} />
+                      </TableCell>
+                      <TableCell>{asset.assigned_to_name || "-"}</TableCell>
+                      <TableCell className="text-muted-foreground">{asset.location || "-"}</TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -190,3 +268,4 @@ export default function AssetList() {
     </div>
   );
 }
+

@@ -23,6 +23,8 @@ export type Database = {
           created_at: string
           id: string
           is_consumable: boolean
+          last_logged_in_date: string | null
+          last_reimaged_date: string | null
           location: string | null
           manufacturer: string | null
           model: string | null
@@ -44,6 +46,8 @@ export type Database = {
           created_at?: string
           id?: string
           is_consumable?: boolean
+          last_logged_in_date?: string | null
+          last_reimaged_date?: string | null
           location?: string | null
           manufacturer?: string | null
           model?: string | null
@@ -65,6 +69,8 @@ export type Database = {
           created_at?: string
           id?: string
           is_consumable?: boolean
+          last_logged_in_date?: string | null
+          last_reimaged_date?: string | null
           location?: string | null
           manufacturer?: string | null
           model?: string | null

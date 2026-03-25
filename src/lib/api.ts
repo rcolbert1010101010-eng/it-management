@@ -30,6 +30,8 @@ const ASSET_SELECT = [
   "category",
   "created_at",
   "is_consumable",
+  "last_logged_in_date",
+  "last_reimaged_date",
   "location",
   "manufacturer",
   "model",
