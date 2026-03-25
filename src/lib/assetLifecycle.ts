@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, isValid, parseISO, startOfToday } from "date-fns";
+import { differenceInCalendarDays, isValid, parseISO, startOfDay, startOfToday } from "date-fns";
 
 export const DEFAULT_NETWORK_REMOVAL_THRESHOLD_DAYS = 30;
 const NETWORK_WARNING_WINDOW_DAYS = 5;
@@ -14,20 +14,29 @@ function parseDateValue(value: string | null | undefined) {
   return isValid(parsed) ? parsed : null;
 }
 
-export function daysSinceLastLogin(lastLoggedInDate: string | null | undefined) {
+function resolveTodayDate(today?: Date) {
+  if (!today || !isValid(today)) {
+    return startOfToday();
+  }
+
+  return startOfDay(today);
+}
+
+export function daysSinceLastLogin(lastLoggedInDate: string | null | undefined, today?: Date) {
   const parsed = parseDateValue(lastLoggedInDate);
   if (!parsed) {
     return null;
   }
 
-  return Math.max(0, differenceInCalendarDays(startOfToday(), parsed));
+  return Math.max(0, differenceInCalendarDays(resolveTodayDate(today), parsed));
 }
 
 export function daysUntilNetworkRemoval(
   lastLoggedInDate: string | null | undefined,
+  today?: Date,
   threshold = DEFAULT_NETWORK_REMOVAL_THRESHOLD_DAYS
 ) {
-  const daysSince = daysSinceLastLogin(lastLoggedInDate);
+  const daysSince = daysSinceLastLogin(lastLoggedInDate, today);
   if (daysSince === null) {
     return null;
   }
@@ -37,9 +46,10 @@ export function daysUntilNetworkRemoval(
 
 export function getNetworkComplianceState(
   lastLoggedInDate: string | null | undefined,
+  today?: Date,
   threshold = DEFAULT_NETWORK_REMOVAL_THRESHOLD_DAYS
 ): NetworkComplianceState {
-  const daysSince = daysSinceLastLogin(lastLoggedInDate);
+  const daysSince = daysSinceLastLogin(lastLoggedInDate, today);
   if (daysSince === null) {
     return "unknown";
   }

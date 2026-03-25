@@ -10,6 +10,7 @@ import {
   getNetworkComplianceState,
   type NetworkComplianceState,
 } from "@/lib/assetLifecycle";
+import { useTodayDate } from "@/lib/dateNow";
 import { AssetLifecycleBadge } from "@/components/AssetLifecycleBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
@@ -55,6 +56,7 @@ const decodeParam = (value: string | null) => {
 export default function AssetList() {
   const location = useLocation();
   const navigate = useNavigate();
+  const today = useTodayDate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("");
   const [category, setCategory] = useState<string>("");
@@ -107,13 +109,13 @@ export default function AssetList() {
     }
 
     return assets.filter((asset) => {
-      const state = getNetworkComplianceState(asset.last_logged_in_date);
+      const state = getNetworkComplianceState(asset.last_logged_in_date, today);
       if (complianceFilter === "warning") return state === "warning";
       if (complianceFilter === "overdue") return state === "overdue";
       if (complianceFilter === "unknown") return state === "unknown";
       return true;
     });
-  }, [assets, complianceFilter]);
+  }, [assets, complianceFilter, today]);
 
   const isEmpty = !isLoading && filteredAssets.length === 0;
 
@@ -221,9 +223,9 @@ export default function AssetList() {
                 </TableRow>
               ) : (
                 filteredAssets.map((asset) => {
-                  const complianceState = getNetworkComplianceState(asset.last_logged_in_date);
-                  const daysSinceLogin = daysSinceLastLogin(asset.last_logged_in_date);
-                  const daysUntilRemoval = daysUntilNetworkRemoval(asset.last_logged_in_date);
+                  const complianceState = getNetworkComplianceState(asset.last_logged_in_date, today);
+                  const daysSinceLogin = daysSinceLastLogin(asset.last_logged_in_date, today);
+                  const daysUntilRemoval = daysUntilNetworkRemoval(asset.last_logged_in_date, today);
 
                   return (
                     <TableRow key={asset.id}>
@@ -253,7 +255,10 @@ export default function AssetList() {
                         {daysUntilRemoval === null ? "Unknown" : daysUntilRemoval}
                       </TableCell>
                       <TableCell>
-                        <AssetLifecycleBadge state={complianceState} />
+                        <AssetLifecycleBadge
+                          lastLoggedInDate={asset.last_logged_in_date}
+                          today={today}
+                        />
                       </TableCell>
                       <TableCell>{asset.assigned_to_name || "-"}</TableCell>
                       <TableCell className="text-muted-foreground">{asset.location || "-"}</TableCell>

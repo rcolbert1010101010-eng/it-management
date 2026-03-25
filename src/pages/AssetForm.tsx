@@ -6,8 +6,8 @@ import { createAsset, updateAsset, fetchAsset, ASSET_CATEGORIES, ASSET_STATUSES,
 import {
   daysSinceLastLogin,
   daysUntilNetworkRemoval,
-  getNetworkComplianceState,
 } from "@/lib/assetLifecycle";
+import { useTodayDate } from "@/lib/dateNow";
 import { useAppStore } from "@/lib/store";
 import { AssetLifecycleBadge } from "@/components/AssetLifecycleBadge";
 import { DatePickerField } from "@/components/DatePickerField";
@@ -33,6 +33,7 @@ export default function AssetForm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const performedBy = useAppStore((s) => s.performedBy);
+  const today = useTodayDate();
 
   const [form, setForm] = useState<Partial<AssetInsert>>({
     asset_tag: "",
@@ -176,9 +177,8 @@ export default function AssetForm() {
     }
   };
 
-  const complianceState = getNetworkComplianceState(form.last_logged_in_date ?? null);
-  const daysSinceLogin = daysSinceLastLogin(form.last_logged_in_date ?? null);
-  const daysUntilRemoval = daysUntilNetworkRemoval(form.last_logged_in_date ?? null);
+  const daysSinceLogin = daysSinceLastLogin(form.last_logged_in_date ?? null, today);
+  const daysUntilRemoval = daysUntilNetworkRemoval(form.last_logged_in_date ?? null, today);
 
   return (
     <div>
@@ -406,7 +406,10 @@ export default function AssetForm() {
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-1 rounded-md bg-muted/40 p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Compliance Status</p>
-                <AssetLifecycleBadge state={complianceState} />
+                <AssetLifecycleBadge
+                  lastLoggedInDate={form.last_logged_in_date ?? null}
+                  today={today}
+                />
               </div>
               <div className="space-y-1 rounded-md bg-muted/40 p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">

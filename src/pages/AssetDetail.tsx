@@ -8,8 +8,8 @@ import { fetchAsset, deleteAsset, fetchAuditLog } from "@/lib/api";
 import {
   daysSinceLastLogin,
   daysUntilNetworkRemoval,
-  getNetworkComplianceState,
 } from "@/lib/assetLifecycle";
+import { useTodayDate } from "@/lib/dateNow";
 import { useAppStore } from "@/lib/store";
 import { AssetLifecycleBadge } from "@/components/AssetLifecycleBadge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -24,6 +24,7 @@ export default function AssetDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const performedBy = useAppStore((s) => s.performedBy);
+  const today = useTodayDate();
 
   const { data: asset, isLoading } = useQuery({
     queryKey: ["asset", id],
@@ -50,16 +51,18 @@ export default function AssetDetail() {
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading...</div>;
   if (!asset) return <div className="py-8 text-center text-muted-foreground">Asset not found</div>;
 
-  const complianceState = getNetworkComplianceState(asset.last_logged_in_date);
-  const daysSinceLogin = daysSinceLastLogin(asset.last_logged_in_date);
-  const daysUntilRemoval = daysUntilNetworkRemoval(asset.last_logged_in_date);
+  const daysSinceLogin = daysSinceLastLogin(asset.last_logged_in_date, today);
+  const daysUntilRemoval = daysUntilNetworkRemoval(asset.last_logged_in_date, today);
 
   const fields = [
     { label: "Asset Tag", value: asset.asset_tag || "Not set" },
     { label: "Category", value: asset.category, capitalize: true },
     { label: "Quantity On Hand", value: asset.quantity_on_hand },
     { label: "Status", value: <StatusBadge kind="asset" value={asset.status} /> },
-    { label: "Compliance Status", value: <AssetLifecycleBadge state={complianceState} /> },
+    {
+      label: "Compliance Status",
+      value: <AssetLifecycleBadge lastLoggedInDate={asset.last_logged_in_date} today={today} />,
+    },
     { label: "Last Logged In Date", value: formatDateValue(asset.last_logged_in_date) },
     { label: "Days Since Last Login", value: daysSinceLogin },
     { label: "Days Until Network Removal", value: daysUntilRemoval },

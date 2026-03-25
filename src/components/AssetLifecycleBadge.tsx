@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import {
+  getNetworkComplianceState,
   getNetworkComplianceLabel,
   type NetworkComplianceState,
 } from "@/lib/assetLifecycle";
@@ -12,6 +13,21 @@ const lifecycleColors: Record<NetworkComplianceState, string> = {
   unknown: "border-transparent bg-slate-500/15 text-slate-700 dark:text-slate-400",
 };
 
-export function AssetLifecycleBadge({ state }: { state: NetworkComplianceState }) {
+type AssetLifecycleBadgeProps =
+  | {
+      state: NetworkComplianceState;
+      lastLoggedInDate?: never;
+      today?: never;
+    }
+  | {
+      state?: never;
+      lastLoggedInDate: string | null | undefined;
+      today?: Date;
+    };
+
+export function AssetLifecycleBadge(props: AssetLifecycleBadgeProps) {
+  const state =
+    props.state ?? getNetworkComplianceState(props.lastLoggedInDate, props.today);
+
   return <Badge className={cn(lifecycleColors[state])}>{getNetworkComplianceLabel(state)}</Badge>;
 }
