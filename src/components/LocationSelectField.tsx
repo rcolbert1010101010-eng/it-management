@@ -53,23 +53,33 @@ export function LocationSelectField({
     [localOptions, value],
   );
   const trimmedSearchValue = trimLocationName(searchValue);
-  const matchingSearchLocation = useMemo(
+  const normalizedInput = normalizeLocationName(searchValue);
+  const exactExistingMatch = useMemo(
     () => findMatchingLocation(trimmedSearchValue, localOptions),
     [localOptions, trimmedSearchValue],
   );
-  const canCreate = Boolean(trimmedSearchValue) && !matchingSearchLocation;
+  const filteredOptions = useMemo(() => {
+    if (!normalizedInput) {
+      return localOptions;
+    }
+
+    return localOptions.filter((option) =>
+      normalizeLocationName(option.name).includes(normalizedInput),
+    );
+  }, [localOptions, normalizedInput]);
+  const canCreate = Boolean(normalizedInput) && !exactExistingMatch;
 
   const handleSelect = (nextValue: string) => {
     const resolvedLocation = findMatchingLocation(nextValue, localOptions);
     const resolvedValue = resolvedLocation?.name ?? trimLocationName(nextValue);
     onValueChange(resolvedValue);
-    setSearchValue(resolvedValue);
+    setSearchValue("");
     setOpen(false);
   };
 
   const handleCreate = async () => {
-    if (matchingSearchLocation) {
-      handleSelect(matchingSearchLocation.name);
+    if (exactExistingMatch) {
+      handleSelect(exactExistingMatch.name);
       return;
     }
     if (!canCreate) return;
@@ -81,7 +91,7 @@ export function LocationSelectField({
       setLocalOptions(nextOptions);
       onOptionsChange?.(nextOptions);
       onValueChange(location.name);
-      setSearchValue(location.name);
+      setSearchValue("");
       setOpen(false);
       toast.success(`Location "${location.name}" ready to use.`);
     } catch (error) {
@@ -121,15 +131,7 @@ export function LocationSelectField({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <Command
-          shouldFilter
-          filter={(itemValue, search) => {
-            const normalizedItem = normalizeLocationName(itemValue);
-            const normalizedSearch = normalizeLocationName(search);
-            if (!normalizedSearch) return 1;
-            return normalizedItem.includes(normalizedSearch) ? 1 : 0;
-          }}
-        >
+        <Command shouldFilter={false}>
           <CommandInput
             placeholder="Search locations..."
             value={searchValue}
@@ -137,8 +139,8 @@ export function LocationSelectField({
             onKeyDown={(event) => {
               if (event.key !== "Enter") return;
               event.preventDefault();
-              if (matchingSearchLocation) {
-                handleSelect(matchingSearchLocation.name);
+              if (exactExistingMatch) {
+                handleSelect(exactExistingMatch.name);
                 return;
               }
               if (canCreate) {
@@ -147,7 +149,6 @@ export function LocationSelectField({
             }}
           />
           <CommandList>
-            <CommandEmpty>No matching locations.</CommandEmpty>
             {canCreate && (
               <CommandGroup heading="Create">
                 <CommandItem value={`add ${trimmedSearchValue}`} onSelect={handleCreate}>
@@ -156,17 +157,22 @@ export function LocationSelectField({
                 </CommandItem>
               </CommandGroup>
             )}
-            <CommandGroup heading="Locations">
-              {localOptions.map((option) => {
-                const isSelected = selectedLocation?.id === option.id;
-                return (
-                  <CommandItem key={option.id} value={option.name} onSelect={() => handleSelect(option.name)}>
-                    <Check className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
-                    {option.name}
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
+            {filteredOptions.length > 0 ? (
+              <CommandGroup heading="Locations">
+                {filteredOptions.map((option) => {
+                  const isSelected = selectedLocation?.id === option.id;
+                  return (
+                    <CommandItem key={option.id} value={option.name} onSelect={() => handleSelect(option.name)}>
+                      <Check className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
+                      {option.name}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            ) : null}
+            {!canCreate && filteredOptions.length === 0 ? (
+              <CommandEmpty>No matching locations.</CommandEmpty>
+            ) : null}
           </CommandList>
         </Command>
       </PopoverContent>

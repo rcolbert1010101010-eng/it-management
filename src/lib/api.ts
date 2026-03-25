@@ -98,19 +98,23 @@ export async function fetchLocations() {
   return mergeLocations(data);
 }
 
+async function findExistingLocationByName(name: string) {
+  const trimmedName = trimLocationName(name);
+  if (!trimmedName) return null;
+
+  const { data, error } = await supabase.from("locations").select("*").order("name", { ascending: true });
+  if (error) throw error;
+
+  return findMatchingLocation(trimmedName, mergeLocations(data));
+}
+
 export async function createLocation(name: string) {
   const trimmedName = trimLocationName(name);
   if (!trimmedName) {
     throw new Error("Location is required.");
   }
 
-  const { data: existingLocations, error: existingError } = await supabase
-    .from("locations")
-    .select("*")
-    .order("name", { ascending: true });
-  if (existingError) throw existingError;
-
-  const existingLocation = findMatchingLocation(trimmedName, mergeLocations(existingLocations));
+  const existingLocation = await findExistingLocationByName(trimmedName);
   if (existingLocation) {
     return existingLocation;
   }
@@ -120,13 +124,7 @@ export async function createLocation(name: string) {
 
   if (error) {
     if (error.code === "23505") {
-      const { data: duplicateRows, error: duplicateError } = await supabase
-        .from("locations")
-        .select("*")
-        .order("name", { ascending: true });
-      if (duplicateError) throw duplicateError;
-
-      const duplicate = findMatchingLocation(trimmedName, mergeLocations(duplicateRows));
+      const duplicate = await findExistingLocationByName(trimmedName);
       if (duplicate) return duplicate;
     }
 

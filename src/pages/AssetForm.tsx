@@ -394,7 +394,7 @@ export default function AssetForm() {
                 id="location"
                 value={form.location || ""}
                 options={locationOptions}
-                onValueChange={(value) => update("location", value)}
+                onValueChange={(value) => update("location", trimLocationName(value))}
                 onOptionsChange={handleLocationOptionsChange}
               />
             </div>
