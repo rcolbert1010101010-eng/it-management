@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { format, parseISO } from "date-fns";
-import { Plus, Search } from "lucide-react";
-import { fetchAssets, ASSET_STATUSES, ASSET_CATEGORIES } from "@/lib/api";
+import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
+import { fetchAssets, fetchAssetCategories, ASSET_STATUSES } from "@/lib/api";
 import {
   daysSinceLastLogin,
   daysUntilNetworkRemoval,
@@ -53,6 +53,58 @@ const decodeParam = (value: string | null) => {
   }
 };
 
+type SortDirection = "asc" | "desc";
+type AssetSortKey =
+  | "asset_tag"
+  | "category"
+  | "model"
+  | "quantity_on_hand"
+  | "status"
+  | "last_logged_in_date"
+  | "days_since_login"
+  | "days_until_removal"
+  | "compliance"
+  | "assigned_to_name"
+  | "location"
+  | "specific_location";
+
+type AssetSortConfig = {
+  key: AssetSortKey;
+  direction: SortDirection;
+};
+
+const compareText = (a: string | null | undefined, b: string | null | undefined) =>
+  (a || "").localeCompare(b || "", undefined, { sensitivity: "base", numeric: true });
+
+const compareNumber = (a: number | null, b: number | null) => {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
+};
+
+const compareDate = (a: string | null, b: string | null) => {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return new Date(a).getTime() - new Date(b).getTime();
+};
+
+const assetSortableColumns: { key: AssetSortKey; label: string; className?: string }[] = [
+  { key: "asset_tag", label: "Asset Tag" },
+  { key: "category", label: "Category" },
+  { key: "model", label: "Model" },
+  { key: "quantity_on_hand", label: "Qty" },
+  { key: "status", label: "Status" },
+  { key: "last_logged_in_date", label: "Last Logged In" },
+  { key: "days_since_login", label: "Days Since Login" },
+  { key: "days_until_removal", label: "Days Until Removal" },
+  { key: "compliance", label: "Compliance" },
+  { key: "assigned_to_name", label: "Assigned To" },
+  { key: "location", label: "Location" },
+  { key: "specific_location", label: "Specific Location" },
+];
+
 export default function AssetList() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -61,6 +113,10 @@ export default function AssetList() {
   const [status, setStatus] = useState<string>("");
   const [category, setCategory] = useState<string>("");
   const [complianceFilter, setComplianceFilter] = useState<string>("");
+  const [sortConfig, setSortConfig] = useState<AssetSortConfig>({
+    key: "asset_tag",
+    direction: "asc",
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -99,6 +155,11 @@ export default function AssetList() {
       }),
   });
 
+  const { data: categoryOptions = [] } = useQuery({
+    queryKey: ["asset-categories"],
+    queryFn: fetchAssetCategories,
+  });
+
   const filteredAssets = useMemo(() => {
     if (!assets) {
       return [];
@@ -117,7 +178,67 @@ export default function AssetList() {
     });
   }, [assets, complianceFilter, today]);
 
-  const isEmpty = !isLoading && filteredAssets.length === 0;
+  const sortedAssets = useMemo(() => {
+    const sorted = [...filteredAssets];
+    sorted.sort((a, b) => {
+      let result = 0;
+      if (sortConfig.key === "asset_tag") {
+        result = compareText(a.asset_tag, b.asset_tag);
+      } else if (sortConfig.key === "category") {
+        result = compareText(a.category, b.category);
+      } else if (sortConfig.key === "model") {
+        result = compareText(
+          [a.manufacturer, a.model].filter(Boolean).join(" "),
+          [b.manufacturer, b.model].filter(Boolean).join(" ")
+        );
+      } else if (sortConfig.key === "quantity_on_hand") {
+        result = compareNumber(a.quantity_on_hand, b.quantity_on_hand);
+      } else if (sortConfig.key === "status") {
+        result = compareText(a.status, b.status);
+      } else if (sortConfig.key === "last_logged_in_date") {
+        result = compareDate(a.last_logged_in_date, b.last_logged_in_date);
+      } else if (sortConfig.key === "days_since_login") {
+        result = compareNumber(daysSinceLastLogin(a.last_logged_in_date, today), daysSinceLastLogin(b.last_logged_in_date, today));
+      } else if (sortConfig.key === "days_until_removal") {
+        result = compareNumber(daysUntilNetworkRemoval(a.last_logged_in_date, today), daysUntilNetworkRemoval(b.last_logged_in_date, today));
+      } else if (sortConfig.key === "compliance") {
+        result = compareText(getNetworkComplianceState(a.last_logged_in_date, today), getNetworkComplianceState(b.last_logged_in_date, today));
+      } else if (sortConfig.key === "assigned_to_name") {
+        result = compareText(a.assigned_to_name, b.assigned_to_name);
+      } else if (sortConfig.key === "location") {
+        result = compareText(a.location, b.location);
+      } else if (sortConfig.key === "specific_location") {
+        result = compareText(a.specific_location, b.specific_location);
+      }
+
+      return sortConfig.direction === "asc" ? result : -result;
+    });
+    return sorted;
+  }, [filteredAssets, sortConfig, today]);
+
+  const requestSort = (key: AssetSortKey) => {
+    setSortConfig((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const renderSortHeader = (key: AssetSortKey, label: string) => (
+    <TableHead key={key}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-left font-medium transition-colors hover:text-foreground"
+        onClick={() => requestSort(key)}
+      >
+        {label}
+        {sortConfig.key === key && (
+          sortConfig.direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </TableHead>
+  );
+
+  const isEmpty = !isLoading && sortedAssets.length === 0;
 
   return (
     <div>
@@ -159,7 +280,7 @@ export default function AssetList() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All Categories</SelectItem>
-            {ASSET_CATEGORIES.map((c) => (
+            {categoryOptions.map((c) => (
               <SelectItem key={c} value={c}>
                 {c.charAt(0).toUpperCase() + c.slice(1)}
               </SelectItem>
@@ -201,18 +322,7 @@ export default function AssetList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Asset Tag</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Model</TableHead>
-                <TableHead>Qty</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last Logged In</TableHead>
-                <TableHead>Days Since Login</TableHead>
-                <TableHead>Days Until Removal</TableHead>
-                <TableHead>Compliance</TableHead>
-                <TableHead>Assigned To</TableHead>
-                <TableHead>Location</TableHead>
-                <TableHead>Specific Location</TableHead>
+                {assetSortableColumns.map((column) => renderSortHeader(column.key, column.label))}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -223,7 +333,7 @@ export default function AssetList() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredAssets.map((asset) => {
+                sortedAssets.map((asset) => {
                   const complianceState = getNetworkComplianceState(asset.last_logged_in_date, today);
                   const daysSinceLogin = daysSinceLastLogin(asset.last_logged_in_date, today);
                   const daysUntilRemoval = daysUntilNetworkRemoval(asset.last_logged_in_date, today);

@@ -13,6 +13,9 @@ export type OrderLineItem = Database["public"]["Tables"]["order_line_items"]["Ro
 export type OrderLineItemInsert = Database["public"]["Tables"]["order_line_items"]["Insert"];
 export type OrderLineItemUpdate = Database["public"]["Tables"]["order_line_items"]["Update"];
 export type AuditLogEntry = Database["public"]["Tables"]["audit_log"]["Row"];
+export type OrderLineItemInput = Omit<OrderLineItemInsert, "order_id"> & {
+  asset_tag?: string | null;
+};
 
 export const ASSET_CATEGORIES = [
   "laptop", "desktop", "monitor", "phone", "printer", "server", "network", "other",
@@ -23,6 +26,23 @@ export const ASSET_STATUSES = ["IN_STOCK", "ASSIGNED", "IN_REPAIR", "RETIRED"] a
 export const ORDER_STATUSES = [
   "REQUESTED", "APPROVED", "ORDERED", "SHIPPED", "READY_FOR_PICKUP", "RECEIVED", "CANCELLED",
 ] as const;
+
+const GENERATED_FROM_ORDER_MARKER = "[generated-from-order-line-item]";
+
+export type OrderLineItemAssetLink = Pick<
+  Asset,
+  | "id"
+  | "asset_tag"
+  | "category"
+  | "created_at"
+  | "is_consumable"
+  | "model"
+  | "quantity_on_hand"
+  | "source_order_line_item_id"
+  | "status"
+> & {
+  generated_from_order: boolean;
+};
 
 const ASSET_SELECT = [
   "id",
@@ -92,6 +112,83 @@ function normalizeReceivedQuantity(value: number | null | undefined) {
   return Math.max(0, Math.trunc(value));
 }
 
+function inferAssetCategoryFromLineItemName(itemName: string) {
+  const normalized = itemName.toLowerCase();
+  if (normalized.includes("laptop")) return "laptop";
+  if (normalized.includes("desktop")) return "desktop";
+  if (normalized.includes("monitor") || normalized.includes("display")) return "monitor";
+  if (normalized.includes("phone")) return "phone";
+  if (normalized.includes("printer")) return "printer";
+  if (normalized.includes("server")) return "server";
+  if (
+    normalized.includes("switch")
+    || normalized.includes("router")
+    || normalized.includes("firewall")
+    || normalized.includes("ap ")
+    || normalized.includes("wireless")
+    || normalized.includes("network")
+  ) {
+    return "network";
+  }
+  return "other";
+}
+
+function normalizeAssetTagInput(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toUpperCase() : null;
+}
+
+function formatAssetTagTimestamp(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
+}
+
+function randomAssetTagSuffix(length: number) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let result = "";
+  for (let i = 0; i < length; i += 1) {
+    result += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return result;
+}
+
+function createUuid() {
+  return crypto.randomUUID();
+}
+
+async function ensureUniqueAssetTag(preferredAssetTag: string | null) {
+  if (preferredAssetTag) {
+    const { data: existingAsset, error: existingAssetError } = await supabase
+      .from("assets")
+      .select("id")
+      .eq("asset_tag", preferredAssetTag)
+      .limit(1)
+      .maybeSingle();
+    if (existingAssetError) throw existingAssetError;
+    if (existingAsset) throw new Error(`Asset tag "${preferredAssetTag}" already exists.`);
+    return preferredAssetTag;
+  }
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const generatedAssetTag = `ASSET-${formatAssetTagTimestamp(new Date())}-${randomAssetTagSuffix(4)}`;
+    const { data: existingAsset, error: existingAssetError } = await supabase
+      .from("assets")
+      .select("id")
+      .eq("asset_tag", generatedAssetTag)
+      .limit(1)
+      .maybeSingle();
+    if (existingAssetError) throw existingAssetError;
+    if (!existingAsset) return generatedAssetTag;
+  }
+
+  throw new Error("Unable to generate a unique asset tag. Please retry.");
+}
+
 export async function fetchLocations() {
   const { data, error } = await supabase.from("locations").select("*").order("name", { ascending: true });
   if (error) throw error;
@@ -157,6 +254,26 @@ export async function fetchAssets(params?: {
   const { data, error } = await query;
   if (error) throw error;
   return data;
+}
+
+export async function fetchAssetCategories() {
+  const { data, error } = await supabase.from("assets").select("category").order("category");
+  if (error) throw error;
+
+  const categoriesByKey = new Map<string, string>();
+  for (const category of ASSET_CATEGORIES) {
+    categoriesByKey.set(category.toLowerCase(), category);
+  }
+  for (const row of data ?? []) {
+    const normalized = row.category?.trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (!categoriesByKey.has(key)) {
+      categoriesByKey.set(key, normalized);
+    }
+  }
+
+  return [...categoriesByKey.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 }
 
 export async function fetchAsset(id: string) {
@@ -270,9 +387,34 @@ export async function fetchOrderLineItems(orderId: string) {
   return data;
 }
 
+export async function fetchOrderLineItemAssetLinks(orderId: string): Promise<OrderLineItemAssetLink[]> {
+  const { data, error } = await supabase
+    .from("assets")
+    .select("id,asset_tag,category,created_at,is_consumable,model,notes,quantity_on_hand,source_order_line_item_id,status")
+    .eq("source_order_id", orderId)
+    .not("source_order_line_item_id", "is", null)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+
+  return (data ?? [])
+    .filter((asset): asset is typeof asset & { source_order_line_item_id: string } => !!asset.source_order_line_item_id)
+    .map((asset) => ({
+      id: asset.id,
+      asset_tag: asset.asset_tag,
+      category: asset.category,
+      created_at: asset.created_at,
+      generated_from_order: (asset.notes || "").includes(GENERATED_FROM_ORDER_MARKER),
+      is_consumable: asset.is_consumable,
+      model: asset.model,
+      quantity_on_hand: asset.quantity_on_hand,
+      source_order_line_item_id: asset.source_order_line_item_id,
+      status: asset.status,
+    }));
+}
+
 export async function createOrder(
   order: OrderInsert,
-  lineItems: Omit<OrderLineItemInsert, "order_id">[],
+  lineItems: OrderLineItemInput[],
   performedBy: string
 ) {
   const { data, error } = await supabase.from("orders").insert(order).select().single();
@@ -281,12 +423,22 @@ export async function createOrder(
     throw error;
   }
 
+  const assetTagsByLineItemId: Record<string, string | null> = {};
   if (lineItems.length > 0) {
-    const items = lineItems.map((li) => ({ ...li, order_id: data.id }));
-    const { error: liError } = await supabase.from("order_line_items").insert(items);
+    const items = lineItems.map(({ asset_tag: _assetTag, id: _id, ...li }) => ({
+      ...li,
+      id: createUuid(),
+      order_id: data.id,
+    }));
+    const { data: insertedLineItems, error: liError } = await supabase.from("order_line_items").insert(items).select("*");
     if (liError) throw liError;
+
+    insertedLineItems?.forEach((lineItem, index) => {
+      assetTagsByLineItemId[lineItem.id] = lineItems[index]?.asset_tag ?? null;
+    });
   }
 
+  await generateMissingAssetsForOrderLineItems(data.id, performedBy, assetTagsByLineItemId);
   await logAudit("ORDER", data.id, "CREATED", { order_number: data.order_number }, performedBy);
   return data;
 }
@@ -319,15 +471,63 @@ export async function deleteOrder(id: string, performedBy: string) {
 
 export async function upsertOrderLineItems(
   orderId: string,
-  lineItems: OrderLineItemInsert[]
+  lineItems: (OrderLineItemInsert & { asset_tag?: string | null })[],
+  performedBy?: string
 ) {
-  // Delete existing, then insert new
-  await supabase.from("order_line_items").delete().eq("order_id", orderId);
-  if (lineItems.length > 0) {
-    const items = lineItems.map((li) => ({ ...li, order_id: orderId }));
-    const { error } = await supabase.from("order_line_items").insert(items);
-    if (error) throw error;
+  const { data: existingLineItems, error: existingLineItemsError } = await supabase
+    .from("order_line_items")
+    .select("id")
+    .eq("order_id", orderId);
+  if (existingLineItemsError) throw existingLineItemsError;
+
+  const existingIds = new Set((existingLineItems ?? []).map((lineItem) => lineItem.id));
+  const submittedIds = new Set(lineItems.map((lineItem) => lineItem.id).filter((lineItemId): lineItemId is string => !!lineItemId));
+  const idsToDelete = [...existingIds].filter((lineItemId) => !submittedIds.has(lineItemId));
+
+  if (idsToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("order_line_items")
+      .delete()
+      .eq("order_id", orderId)
+      .in("id", idsToDelete);
+    if (deleteError) throw deleteError;
   }
+
+  const savedLineItems: OrderLineItem[] = [];
+  const assetTagsByLineItemId: Record<string, string | null> = {};
+
+  for (const lineItem of lineItems) {
+    const { asset_tag: assetTag, id: lineItemId, ...lineItemPayload } = lineItem;
+
+    if (lineItemId && existingIds.has(lineItemId)) {
+      const { data: updatedLineItem, error: updateError } = await supabase
+        .from("order_line_items")
+        .update(lineItemPayload)
+        .eq("id", lineItemId)
+        .eq("order_id", orderId)
+        .select("*")
+        .single();
+      if (updateError) throw updateError;
+      savedLineItems.push(updatedLineItem);
+      assetTagsByLineItemId[updatedLineItem.id] = assetTag ?? null;
+      continue;
+    }
+
+    const { data: insertedLineItem, error: insertError } = await supabase
+      .from("order_line_items")
+      .insert({ ...lineItemPayload, id: createUuid(), order_id: orderId })
+      .select("*")
+      .single();
+    if (insertError) throw insertError;
+    savedLineItems.push(insertedLineItem);
+    assetTagsByLineItemId[insertedLineItem.id] = assetTag ?? null;
+  }
+
+  if (performedBy) {
+    await generateMissingAssetsForOrderLineItems(orderId, performedBy, assetTagsByLineItemId);
+  }
+
+  return savedLineItems;
 }
 
 async function applyConsumableInventoryDeltaForReceipt(
@@ -349,51 +549,44 @@ async function applyConsumableInventoryDeltaForReceipt(
   const delta = desiredTotalReceived - alreadyApplied;
   if (delta <= 0) return;
 
-  const { data: existingConsumableAsset, error: assetLookupError } = await supabase
+  const { data: linkedAssets, error: assetLookupError } = await supabase
     .from("assets")
     .select(ASSET_SELECT)
     .eq("source_order_id", orderId)
     .eq("source_order_line_item_id", lineItem.id)
-    .eq("is_consumable", true)
     .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .limit(100);
   if (assetLookupError) throw assetLookupError;
 
-  let adjustedAsset: Asset;
-  let previousQuantityOnHand = 0;
-  let createdAsset = false;
-
-  if (existingConsumableAsset) {
-    previousQuantityOnHand = normalizeQuantityOnHand(existingConsumableAsset.quantity_on_hand, 0);
-    const { data: updatedAsset, error: updateAssetError } = await supabase
-      .from("assets")
-      .update({ quantity_on_hand: previousQuantityOnHand + delta })
-      .eq("id", existingConsumableAsset.id)
-      .select(ASSET_SELECT)
-      .single();
-    if (updateAssetError) throw updateAssetError;
-    adjustedAsset = updatedAsset;
-  } else {
-    const { data: insertedAsset, error: insertAssetError } = await supabase
-      .from("assets")
-      .insert({
-        asset_tag: null,
-        category: "other",
-        is_consumable: true,
-        model: lineItem.item_name,
-        notes: lineItem.notes || "Auto-created from received order line item",
-        quantity_on_hand: delta,
-        source_order_id: orderId,
-        source_order_line_item_id: lineItem.id,
-        status: "IN_STOCK",
-      })
-      .select(ASSET_SELECT)
-      .single();
-    if (insertAssetError) throw insertAssetError;
-    adjustedAsset = insertedAsset;
-    createdAsset = true;
+  if (!linkedAssets || linkedAssets.length === 0) {
+    throw new Error("This line item is not linked to any asset. Fix the order line asset link before receiving.");
   }
+
+  const existingConsumableAsset = linkedAssets.find((asset) => asset.is_consumable) ?? null;
+  if (!existingConsumableAsset) {
+    const { error: ledgerWriteError } = await supabase
+      .from("order_line_item_receipt_ledger")
+      .upsert(
+        {
+          order_line_item_id: lineItem.id,
+          total_received_applied: desiredTotalReceived,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "order_line_item_id" }
+      );
+    if (ledgerWriteError) throw ledgerWriteError;
+    return;
+  }
+
+  let previousQuantityOnHand = 0;
+  previousQuantityOnHand = normalizeQuantityOnHand(existingConsumableAsset.quantity_on_hand, 0);
+  const { data: updatedAsset, error: updateAssetError } = await supabase
+    .from("assets")
+    .update({ quantity_on_hand: previousQuantityOnHand + delta })
+    .eq("id", existingConsumableAsset.id)
+    .select(ASSET_SELECT)
+    .single();
+  if (updateAssetError) throw updateAssetError;
 
   const { error: ledgerWriteError } = await supabase
     .from("order_line_item_receipt_ledger")
@@ -407,20 +600,16 @@ async function applyConsumableInventoryDeltaForReceipt(
     );
 
   if (ledgerWriteError) {
-    if (createdAsset) {
-      await supabase.from("assets").delete().eq("id", adjustedAsset.id);
-    } else {
-      await supabase
-        .from("assets")
-        .update({ quantity_on_hand: previousQuantityOnHand })
-        .eq("id", adjustedAsset.id);
-    }
+    await supabase
+      .from("assets")
+      .update({ quantity_on_hand: previousQuantityOnHand })
+      .eq("id", updatedAsset.id);
     throw ledgerWriteError;
   }
 
   await logAudit(
     "ASSET",
-    adjustedAsset.id,
+    updatedAsset.id,
     "QOH_INCREMENTED",
     {
       source_order_id: orderId,
@@ -428,7 +617,7 @@ async function applyConsumableInventoryDeltaForReceipt(
       line_item_name: lineItem.item_name,
       delta,
       previous_quantity_on_hand: previousQuantityOnHand,
-      quantity_on_hand: adjustedAsset.quantity_on_hand,
+      quantity_on_hand: updatedAsset.quantity_on_hand,
       received_total_requested: desiredTotalReceived,
       received_total_previously_applied: alreadyApplied,
     },
@@ -441,6 +630,42 @@ export async function markOrderReceived(
   lineItemUpdates: { id: string; received_quantity: number | null }[],
   performedBy: string
 ) {
+  const normalizedLineItemUpdates = lineItemUpdates.map((lineItemUpdate) => ({
+    id: lineItemUpdate.id,
+    received_quantity: normalizeReceivedQuantity(lineItemUpdate.received_quantity),
+  }));
+
+  const { data: linkedAssets, error: linkedAssetsError } = await supabase
+    .from("assets")
+    .select("source_order_line_item_id")
+    .eq("source_order_id", orderId)
+    .not("source_order_line_item_id", "is", null);
+  if (linkedAssetsError) throw linkedAssetsError;
+
+  const linkedLineItemIds = new Set(
+    (linkedAssets ?? [])
+      .map((asset) => asset.source_order_line_item_id)
+      .filter((lineItemId): lineItemId is string => !!lineItemId)
+  );
+
+  const receivingWithoutLinks = normalizedLineItemUpdates
+    .filter((lineItemUpdate) => lineItemUpdate.received_quantity > 0 && !linkedLineItemIds.has(lineItemUpdate.id))
+    .map((lineItemUpdate) => lineItemUpdate.id);
+
+  if (receivingWithoutLinks.length > 0) {
+    const { data: missingLines, error: missingLinesError } = await supabase
+      .from("order_line_items")
+      .select("id,item_name")
+      .eq("order_id", orderId)
+      .in("id", receivingWithoutLinks);
+    if (missingLinesError) throw missingLinesError;
+
+    const missingNames = (missingLines ?? []).map((lineItem) => lineItem.item_name);
+    throw new Error(
+      `Cannot receive line item(s) without an asset link: ${missingNames.join(", ")}. Fix the order line asset link first.`
+    );
+  }
+
   const { data: currentOrder, error: currentOrderError } = await supabase
     .from("orders")
     .select("received_date")
@@ -455,8 +680,8 @@ export async function markOrderReceived(
     .eq("id", orderId);
   if (orderError) throw orderError;
 
-  for (const li of lineItemUpdates) {
-    const desiredTotalReceived = normalizeReceivedQuantity(li.received_quantity);
+  for (const li of normalizedLineItemUpdates) {
+    const desiredTotalReceived = li.received_quantity;
 
     const { data: updatedLineItem, error: lineItemError } = await supabase
       .from("order_line_items")
@@ -528,6 +753,121 @@ export async function createAssetsFromLineItem(
   }
 
   return data;
+}
+
+export async function generateAssetFromOrderLineItem(
+  orderId: string,
+  lineItemId: string,
+  performedBy: string,
+  assetTagInput?: string | null
+) {
+  const [{ data: order, error: orderError }, { data: lineItem, error: lineItemError }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("order_number,order_date,shipping_tracking_number,vendor_name")
+      .eq("id", orderId)
+      .single(),
+    supabase.from("order_line_items").select("*").eq("id", lineItemId).eq("order_id", orderId).single(),
+  ]);
+
+  if (orderError) throw orderError;
+  if (lineItemError) throw lineItemError;
+  if (!lineItem) throw new Error("Line item not found.");
+
+  const { data: existingLinkedAsset, error: existingAssetError } = await supabase
+    .from("assets")
+    .select("id")
+    .eq("source_order_id", orderId)
+    .eq("source_order_line_item_id", lineItemId)
+    .limit(1)
+    .maybeSingle();
+  if (existingAssetError) throw existingAssetError;
+
+  if (existingLinkedAsset) {
+    throw new Error("This order line item is already linked to an asset.");
+  }
+
+  const safeOrderedQuantity = Math.max(1, Math.trunc(lineItem.quantity || 1));
+  const receivedQuantity = normalizeReceivedQuantity(lineItem.received_quantity);
+  const category = inferAssetCategoryFromLineItemName(lineItem.item_name);
+  const resolvedAssetTag = await ensureUniqueAssetTag(normalizeAssetTagInput(assetTagInput));
+
+  const generatedNotes = [
+    GENERATED_FROM_ORDER_MARKER,
+    `Generated from order ${order.order_number}`,
+    lineItem.notes ? `Description: ${lineItem.notes}` : null,
+    `Ordered quantity: ${safeOrderedQuantity}`,
+    lineItem.unit_cost != null ? `Unit cost: $${Number(lineItem.unit_cost).toFixed(2)}` : null,
+    lineItem.sku ? `SKU: ${lineItem.sku}` : null,
+    order.vendor_name ? `Vendor: ${order.vendor_name}` : null,
+    order.shipping_tracking_number ? `Tracking: ${order.shipping_tracking_number}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { data: generatedAsset, error: insertAssetError } = await supabase
+    .from("assets")
+    .insert({
+      asset_tag: resolvedAssetTag,
+      category,
+      is_consumable: true,
+      manufacturer: order.vendor_name || null,
+      model: lineItem.item_name,
+      notes: generatedNotes,
+      purchase_date: order.order_date || null,
+      quantity_on_hand: receivedQuantity,
+      source_order_id: orderId,
+      source_order_line_item_id: lineItemId,
+      status: "IN_STOCK",
+    })
+    .select(ASSET_SELECT)
+    .single();
+  if (insertAssetError) throw insertAssetError;
+
+  await logAudit(
+    "ASSET",
+    generatedAsset.id,
+    "GENERATED_FROM_ORDER_LINE_ITEM",
+    {
+      order_id: orderId,
+      order_number: order.order_number,
+      order_line_item_id: lineItemId,
+      item_name: lineItem.item_name,
+      ordered_quantity: safeOrderedQuantity,
+      received_quantity: receivedQuantity,
+      asset_tag: generatedAsset.asset_tag,
+    },
+    performedBy
+  );
+
+  return generatedAsset;
+}
+
+export async function generateMissingAssetsForOrderLineItems(
+  orderId: string,
+  performedBy: string,
+  assetTagsByLineItemId: Record<string, string | null | undefined> = {}
+) {
+  const [lineItems, linkedAssets] = await Promise.all([
+    fetchOrderLineItems(orderId),
+    fetchOrderLineItemAssetLinks(orderId),
+  ]);
+
+  const linkedLineItemIds = new Set(linkedAssets.map((asset) => asset.source_order_line_item_id));
+  const generatedAssets: Asset[] = [];
+
+  for (const lineItem of lineItems) {
+    if (linkedLineItemIds.has(lineItem.id)) continue;
+    const generatedAsset = await generateAssetFromOrderLineItem(
+      orderId,
+      lineItem.id,
+      performedBy,
+      assetTagsByLineItemId[lineItem.id] ?? null
+    );
+    generatedAssets.push(generatedAsset);
+  }
+
+  return generatedAssets;
 }
 
 // ---- Audit Log ----

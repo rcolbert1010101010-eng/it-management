@@ -7,22 +7,14 @@ import {
   deleteOrder,
   markOrderReceived,
   fetchAuditLog,
-  createAssetsFromLineItem,
-  ASSET_CATEGORIES,
+  fetchOrderLineItemAssetLinks,
+  generateAssetFromOrderLineItem,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -38,7 +30,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Pencil, Trash2, PackageCheck, Plus } from "lucide-react";
+import { Pencil, Trash2, PackageCheck, AlertTriangle, Link2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -50,14 +42,15 @@ export default function OrderDetail() {
 
   const [showReceive, setShowReceive] = useState(false);
   const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({});
-  const [showCreateAssets, setShowCreateAssets] = useState(false);
+  const [showGenerateAsset, setShowGenerateAsset] = useState(false);
   const [selectedLineItem, setSelectedLineItem] = useState<{
     id: string;
     item_name: string;
     quantity: number;
+    notes: string | null;
+    unit_cost: number | null;
   } | null>(null);
-  const [assetTags, setAssetTags] = useState<string[]>([]);
-  const [assetCategory, setAssetCategory] = useState("laptop");
+  const [assetTagInput, setAssetTagInput] = useState("");
 
   const { data: order, isLoading } = useQuery({
     queryKey: ["order", id],
@@ -68,6 +61,12 @@ export default function OrderDetail() {
   const { data: lineItems } = useQuery({
     queryKey: ["order-line-items", id],
     queryFn: () => fetchOrderLineItems(id!),
+    enabled: !!id,
+  });
+
+  const { data: lineItemAssetLinks } = useQuery({
+    queryKey: ["order-line-item-assets", id],
+    queryFn: () => fetchOrderLineItemAssetLinks(id!),
     enabled: !!id,
   });
 
@@ -106,19 +105,19 @@ export default function OrderDetail() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const createAssetsMutation = useMutation({
+  const generateAssetMutation = useMutation({
     mutationFn: () => {
       if (!selectedLineItem) throw new Error("No line item selected");
-      const tags = assetTags.filter((t) => t.trim());
-      if (tags.length === 0) throw new Error("Enter at least one asset tag");
-      return createAssetsFromLineItem(id!, selectedLineItem.id, tags, assetCategory, performedBy);
+      return generateAssetFromOrderLineItem(id!, selectedLineItem.id, performedBy, assetTagInput);
     },
-    onSuccess: (assets) => {
+    onSuccess: (generatedAsset) => {
       queryClient.invalidateQueries({ queryKey: ["assets"] });
-      setShowCreateAssets(false);
+      queryClient.invalidateQueries({ queryKey: ["order-line-item-assets", id] });
+      queryClient.invalidateQueries({ queryKey: ["order-line-items", id] });
+      setShowGenerateAsset(false);
       setSelectedLineItem(null);
-      setAssetTags([]);
-      toast.success(`Created ${assets.length} asset(s)`);
+      setAssetTagInput("");
+      toast.success(`Asset generated: ${generatedAsset.asset_tag}`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -132,11 +131,16 @@ export default function OrderDetail() {
     setShowReceive(true);
   };
 
-  const openCreateAssetsDialog = (li: { id: string; item_name: string; quantity: number }) => {
+  const openGenerateAssetDialog = (li: {
+    id: string;
+    item_name: string;
+    quantity: number;
+    notes: string | null;
+    unit_cost: number | null;
+  }) => {
     setSelectedLineItem(li);
-    setAssetTags(Array.from({ length: li.quantity }, () => ""));
-    setAssetCategory("laptop");
-    setShowCreateAssets(true);
+    setAssetTagInput("");
+    setShowGenerateAsset(true);
   };
 
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading...</div>;
@@ -157,6 +161,23 @@ export default function OrderDetail() {
   ];
 
   const totalCost = lineItems?.reduce((sum, li) => sum + (li.unit_cost || 0) * li.quantity, 0) || 0;
+  const linksByLineItemId = (lineItemAssetLinks ?? []).reduce<
+    Record<string, NonNullable<typeof lineItemAssetLinks>[number][]>
+  >(
+    (acc, link) => {
+      if (!link.source_order_line_item_id) return acc;
+      const existing = acc[link.source_order_line_item_id] ?? [];
+      acc[link.source_order_line_item_id] = [...existing, link];
+      return acc;
+    },
+    {}
+  );
+
+  const getLineItemLinks = (lineItemId: string) => linksByLineItemId[lineItemId] ?? [];
+  const hasLinkedAsset = (lineItemId: string) => getLineItemLinks(lineItemId).length > 0;
+  const receivingWithoutAssetLinks = (lineItems ?? []).filter(
+    (lineItem) => (receivedQtys[lineItem.id] ?? 0) > 0 && !hasLinkedAsset(lineItem.id)
+  );
 
   return (
     <div>
@@ -210,6 +231,7 @@ export default function OrderDetail() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Item</TableHead>
+                  <TableHead>Asset Link</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">Unit Cost</TableHead>
                   <TableHead className="text-right">Received</TableHead>
@@ -220,7 +242,7 @@ export default function OrderDetail() {
               <TableBody>
                 {lineItems?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-4 text-muted-foreground">
                       No line items
                     </TableCell>
                   </TableRow>
@@ -228,6 +250,29 @@ export default function OrderDetail() {
                   lineItems?.map((li) => (
                     <TableRow key={li.id}>
                       <TableCell className="font-medium">{li.item_name}</TableCell>
+                      <TableCell>
+                        {hasLinkedAsset(li.id) ? (
+                          <div className="space-y-1">
+                            <div className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                              <Link2 className="mr-1 h-3 w-3" />
+                              Linked ({getLineItemLinks(li.id).length})
+                            </div>
+                            {getLineItemLinks(li.id)[0]?.asset_tag && (
+                              <p className="text-xs text-muted-foreground">
+                                Tag: {getLineItemLinks(li.id)[0].asset_tag}
+                              </p>
+                            )}
+                            {getLineItemLinks(li.id).some((link) => link.generated_from_order) && (
+                              <p className="text-xs text-muted-foreground">Generated from order</p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            <AlertTriangle className="mr-1 h-3 w-3" />
+                            Missing link
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{li.quantity}</TableCell>
                       <TableCell className="text-right">
                         {li.unit_cost != null ? `$${Number(li.unit_cost).toFixed(2)}` : "—"}
@@ -235,15 +280,18 @@ export default function OrderDetail() {
                       <TableCell className="text-right">{li.received_quantity ?? 0}</TableCell>
                       <TableCell className="text-muted-foreground">{li.sku || "—"}</TableCell>
                       <TableCell>
-                        {order.status === "RECEIVED" && (
+                        {!hasLinkedAsset(li.id) ? (
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => openCreateAssetsDialog(li)}
+                            onClick={() => openGenerateAssetDialog(li)}
+                            disabled={generateAssetMutation.isPending}
                           >
                             <Plus className="mr-1 h-3 w-3" />
-                            Create Assets
+                            Generate Asset
                           </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Asset-backed</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -294,11 +342,30 @@ export default function OrderDetail() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Set received quantities for each line item.
+              Set received quantities for each line item. Receiving is blocked for lines that are missing an asset link; edit the order line first.
             </p>
+            {receivingWithoutAssetLinks.length > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <p className="font-medium">Fix these order line asset links before receiving:</p>
+                <ul className="mt-1 list-disc pl-4">
+                  {receivingWithoutAssetLinks.map((lineItem) => (
+                    <li key={lineItem.id}>
+                      {lineItem.item_name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {lineItems?.map((li) => (
-              <div key={li.id} className="flex items-center justify-between gap-4">
-                <span className="text-sm font-medium">{li.item_name}</span>
+              <div key={li.id} className="flex items-center justify-between gap-4 rounded-md border p-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{li.item_name}</p>
+                  {!hasLinkedAsset(li.id) ? (
+                    <p className="mt-0.5 text-xs text-amber-700">No linked asset yet</p>
+                  ) : (
+                    <p className="mt-0.5 text-xs text-muted-foreground">Linked to {getLineItemLinks(li.id).length} asset(s)</p>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">of {li.quantity}</span>
                   <Input
@@ -326,73 +393,62 @@ export default function OrderDetail() {
             <Button variant="outline" onClick={() => setShowReceive(false)}>
               Cancel
             </Button>
-            <Button onClick={() => receiveMutation.mutate()} disabled={receiveMutation.isPending}>
+            <Button
+              onClick={() => receiveMutation.mutate()}
+              disabled={receiveMutation.isPending || receivingWithoutAssetLinks.length > 0}
+            >
               {receiveMutation.isPending ? "Saving..." : "Confirm Received"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Create Assets Dialog */}
-      <Dialog open={showCreateAssets} onOpenChange={setShowCreateAssets}>
+      {/* Generate Asset Dialog */}
+      <Dialog open={showGenerateAsset} onOpenChange={setShowGenerateAsset}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Assets from "{selectedLineItem?.item_name}"</DialogTitle>
+            <DialogTitle>Generate Asset from Order Line</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label>Category</Label>
-              <Select value={assetCategory} onValueChange={setAssetCategory}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ASSET_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c.charAt(0).toUpperCase() + c.slice(1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <p className="text-sm text-muted-foreground">
+              This creates an asset record prefilled from the order line and links this line item to it so receiving can safely update inventory.
+            </p>
+            <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+              <p><span className="font-medium">Item:</span> {selectedLineItem?.item_name || "—"}</p>
+              <p><span className="font-medium">Ordered Qty:</span> {selectedLineItem?.quantity ?? "—"}</p>
+              <p>
+                <span className="font-medium">Unit Cost:</span>{" "}
+                {selectedLineItem?.unit_cost != null ? `$${Number(selectedLineItem.unit_cost).toFixed(2)}` : "—"}
+              </p>
+              <p><span className="font-medium">Description:</span> {selectedLineItem?.notes || "—"}</p>
             </div>
-            <div className="space-y-2">
-              <Label>
-                Asset Tags ({assetTags.length} — leave blank to fill later)
-              </Label>
-              {assetTags.map((tag, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground w-6">{i + 1}.</span>
-                  <Input
-                    placeholder={`Asset tag ${i + 1}`}
-                    value={tag}
-                    onChange={(e) => {
-                      const newTags = [...assetTags];
-                      newTags[i] = e.target.value;
-                      setAssetTags(newTags);
-                    }}
-                  />
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setAssetTags([...assetTags, ""])}
-              >
-                <Plus className="mr-1 h-3 w-3" />
-                Add Another
-              </Button>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Asset Tag (optional)</p>
+              <Input
+                value={assetTagInput}
+                onChange={(e) => setAssetTagInput(e.target.value)}
+                placeholder="Leave blank to auto-generate (ASSET-YYYYMMDD-HHMMSS-RANDOM4)"
+              />
+              <p className="text-xs text-muted-foreground">
+                If left blank, a unique tag is generated automatically.
+              </p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateAssets(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowGenerateAsset(false);
+                setAssetTagInput("");
+              }}
+            >
               Cancel
             </Button>
             <Button
-              onClick={() => createAssetsMutation.mutate()}
-              disabled={createAssetsMutation.isPending}
+              onClick={() => generateAssetMutation.mutate()}
+              disabled={generateAssetMutation.isPending}
             >
-              {createAssetsMutation.isPending ? "Creating..." : "Create Assets"}
+              {generateAssetMutation.isPending ? "Generating..." : "Generate Asset"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,16 +1,15 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   createAsset,
   updateAsset,
   fetchAsset,
+  fetchAssetCategories,
   fetchLocations,
   findMatchingLocation,
   mergeLocations,
   trimLocationName,
-  ASSET_CATEGORIES,
   ASSET_STATUSES,
   type AssetInsert,
   type Location,
@@ -71,25 +70,10 @@ export default function AssetForm() {
   const [customCategory, setCustomCategory] = useState("");
   const [showCustomCategory, setShowCustomCategory] = useState(false);
 
-  // Fetch all distinct categories from the database
-  const { data: dbCategories } = useQuery({
+  const { data: allCategories = [] } = useQuery({
     queryKey: ["asset-categories"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("assets")
-        .select("category")
-        .order("category");
-      if (error) throw error;
-      const unique = [...new Set(data.map((r) => r.category))];
-      return unique;
-    },
+    queryFn: fetchAssetCategories,
   });
-
-  const allCategories = useMemo(() => {
-    const defaults = [...ASSET_CATEGORIES] as string[];
-    const extras = (dbCategories || []).filter((c) => !defaults.includes(c));
-    return [...defaults, ...extras];
-  }, [dbCategories]);
 
   const { data: locationRows = [] } = useQuery({
     queryKey: ["locations"],

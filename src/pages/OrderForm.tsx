@@ -6,10 +6,11 @@ import {
   updateOrder,
   fetchOrder,
   fetchOrderLineItems,
+  fetchOrderLineItemAssetLinks,
   upsertOrderLineItems,
   ORDER_STATUSES,
   type OrderInsert,
-  type OrderLineItemInsert,
+  type OrderLineItemInput,
 } from "@/lib/api";
 import { getOrderStatusLabel } from "@/lib/status";
 import { useAppStore } from "@/lib/store";
@@ -26,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, X } from "lucide-react";
+import { AlertTriangle, Link2, Plus, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface LineItemForm {
@@ -37,6 +38,8 @@ interface LineItemForm {
   sku: string;
   received_quantity: number;
   notes: string;
+  asset_tag: string;
+  generate_asset: boolean;
 }
 
 const emptyLineItem: LineItemForm = {
@@ -46,6 +49,8 @@ const emptyLineItem: LineItemForm = {
   sku: "",
   received_quantity: 0,
   notes: "",
+  asset_tag: "",
+  generate_asset: false,
 };
 
 export default function OrderForm() {
@@ -70,6 +75,12 @@ export default function OrderForm() {
   });
 
   const [lineItems, setLineItems] = useState<LineItemForm[]>([{ ...emptyLineItem }]);
+
+  const { data: lineItemAssetLinks } = useQuery({
+    queryKey: ["order-line-item-assets", id],
+    queryFn: () => fetchOrderLineItemAssetLinks(id!),
+    enabled: isEdit,
+  });
 
   // Load existing order data
   useQuery({
@@ -102,6 +113,8 @@ export default function OrderForm() {
               sku: li.sku || "",
               received_quantity: li.received_quantity ?? 0,
               notes: li.notes || "",
+              asset_tag: "",
+              generate_asset: false,
             }))
           : [{ ...emptyLineItem }]
       );
@@ -124,22 +137,25 @@ export default function OrderForm() {
         notes: form.notes || null,
       };
 
-      const validItems = lineItems
+      const validItems: OrderLineItemInput[] = lineItems
         .filter((li) => li.item_name.trim())
         .map((li) => ({
+          id: li.id,
           item_name: li.item_name,
           quantity: li.quantity,
           unit_cost: li.unit_cost ? parseFloat(li.unit_cost) : null,
           sku: li.sku || null,
           received_quantity: li.received_quantity,
           notes: li.notes || null,
+          asset_tag: li.asset_tag || null,
         }));
 
       if (isEdit) {
         const result = await updateOrder(id!, orderData, performedBy);
         await upsertOrderLineItems(
           id!,
-          validItems.map((li) => ({ ...li, order_id: id! }))
+          validItems.map((li) => ({ ...li, order_id: id! })),
+          performedBy
         );
         return result;
       }
@@ -149,7 +165,9 @@ export default function OrderForm() {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["order", id] });
       queryClient.invalidateQueries({ queryKey: ["order-line-items", id] });
-      toast.success(isEdit ? "Order updated" : "Order created");
+      queryClient.invalidateQueries({ queryKey: ["order-line-item-assets", id] });
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      toast.success(isEdit ? "Order updated and assets linked" : "Order created and assets linked");
       navigate(`/orders/${result.id}`);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -167,6 +185,16 @@ export default function OrderForm() {
 
   const removeLineItem = (index: number) =>
     setLineItems((prev) => prev.filter((_, i) => i !== index));
+
+  const markLineForAssetGeneration = (index: number) =>
+    setLineItems((prev) =>
+      prev.map((li, i) => (i === index ? { ...li, generate_asset: true } : li))
+    );
+
+  const getLineItemLinks = (lineItemId?: string) => {
+    if (!lineItemId) return [];
+    return (lineItemAssetLinks ?? []).filter((link) => link.source_order_line_item_id === lineItemId);
+  };
 
   return (
     <div>
@@ -294,30 +322,72 @@ export default function OrderForm() {
         {/* Line Items */}
         <div className="rounded-lg border bg-card p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-medium text-foreground">Line Items</h2>
+            <div>
+              <h2 className="text-lg font-medium text-foreground">Line Items</h2>
+              <p className="text-sm text-muted-foreground">
+                Every saved line is linked to an asset before the order can be received.
+              </p>
+            </div>
             <Button type="button" variant="outline" size="sm" onClick={addLineItem}>
               <Plus className="mr-1 h-3.5 w-3.5" />
               Add Item
             </Button>
           </div>
 
-          {lineItems.map((li, index) => (
+          {lineItems.map((li, index) => {
+            const linkedAssets = getLineItemLinks(li.id);
+            const linkedAsset = linkedAssets[0];
+            const isLinked = linkedAssets.length > 0;
+
+            return (
             <div key={index} className="rounded border p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-muted-foreground">
-                  Item {index + 1}
-                </span>
-                {lineItems.length > 1 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => removeLineItem(index)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-muted-foreground">
+                    Item {index + 1}
+                  </span>
+                  {isLinked ? (
+                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                      <Link2 className="mr-1 h-3 w-3" />
+                      {linkedAsset?.generated_from_order ? "Generated asset" : "Linked asset"}
+                      {linkedAsset?.asset_tag ? `: ${linkedAsset.asset_tag}` : ""}
+                    </span>
+                  ) : li.generate_asset ? (
+                    <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                      <Sparkles className="mr-1 h-3 w-3" />
+                      Will generate on save
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      <AlertTriangle className="mr-1 h-3 w-3" />
+                      Missing asset link
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  {!isLinked && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => markLineForAssetGeneration(index)}
+                    >
+                      <Sparkles className="mr-1 h-3.5 w-3.5" />
+                      Create Asset from Line
+                    </Button>
+                  )}
+                  {lineItems.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => removeLineItem(index)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="md:col-span-2">
@@ -357,6 +427,15 @@ export default function OrderForm() {
                     onChange={(e) => updateLineItem(index, "sku", e.target.value)}
                   />
                 </div>
+                <div>
+                  <Label>Asset Tag (optional)</Label>
+                  <Input
+                    value={li.asset_tag}
+                    disabled={isLinked}
+                    placeholder={isLinked ? linkedAsset?.asset_tag || "Linked" : "Auto-generated if blank"}
+                    onChange={(e) => updateLineItem(index, "asset_tag", e.target.value)}
+                  />
+                </div>
                 <div className="md:col-span-3">
                   <Label>Notes</Label>
                   <Input
@@ -366,7 +445,8 @@ export default function OrderForm() {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="flex gap-3">

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
 import { fetchOrders, ORDER_STATUSES } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { getOrderStatusLabel } from "@/lib/status";
@@ -36,12 +36,51 @@ const decodeParam = (value: string | null) => {
   }
 };
 
+type SortDirection = "asc" | "desc";
+type OrderSortKey =
+  | "order_number"
+  | "vendor_name"
+  | "line_items_summary"
+  | "status"
+  | "order_date"
+  | "expected_delivery_date"
+  | "requested_by_name";
+
+type OrderSortConfig = {
+  key: OrderSortKey;
+  direction: SortDirection;
+};
+
+const orderSortableColumns: { key: OrderSortKey; label: string }[] = [
+  { key: "order_number", label: "Order #" },
+  { key: "vendor_name", label: "Vendor" },
+  { key: "line_items_summary", label: "Items" },
+  { key: "status", label: "Status" },
+  { key: "order_date", label: "Order Date" },
+  { key: "expected_delivery_date", label: "Expected Delivery" },
+  { key: "requested_by_name", label: "Requested For" },
+];
+
+const compareText = (a: string | null | undefined, b: string | null | undefined) =>
+  (a || "").localeCompare(b || "", undefined, { sensitivity: "base", numeric: true });
+
+const compareDate = (a: string | null | undefined, b: string | null | undefined) => {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return new Date(a).getTime() - new Date(b).getTime();
+};
+
 export default function OrderList() {
   const location = useLocation();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("");
   const [vendor, setVendor] = useState("");
+  const [sortConfig, setSortConfig] = useState<OrderSortConfig>({
+    key: "order_number",
+    direction: "asc",
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -97,7 +136,44 @@ export default function OrderList() {
       }));
     },
   });
-  const isEmpty = !isLoading && (orders?.length ?? 0) === 0;
+
+  const sortedOrders = useMemo(() => {
+    const sorted = [...(orders ?? [])];
+    sorted.sort((a, b) => {
+      let result = 0;
+      if (sortConfig.key === "order_date" || sortConfig.key === "expected_delivery_date") {
+        result = compareDate(a[sortConfig.key], b[sortConfig.key]);
+      } else {
+        result = compareText(a[sortConfig.key], b[sortConfig.key]);
+      }
+      return sortConfig.direction === "asc" ? result : -result;
+    });
+    return sorted;
+  }, [orders, sortConfig]);
+
+  const requestSort = (key: OrderSortKey) => {
+    setSortConfig((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const renderSortHeader = (key: OrderSortKey, label: string) => (
+    <TableHead key={key}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-left font-medium transition-colors hover:text-foreground"
+        onClick={() => requestSort(key)}
+      >
+        {label}
+        {sortConfig.key === key && (
+          sortConfig.direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </TableHead>
+  );
+
+  const isEmpty = !isLoading && sortedOrders.length === 0;
 
   return (
     <div>
@@ -154,13 +230,7 @@ export default function OrderList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Order #</TableHead>
-                <TableHead>Vendor</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Order Date</TableHead>
-                <TableHead>Expected Delivery</TableHead>
-                <TableHead>Requested For</TableHead>
+                {orderSortableColumns.map((column) => renderSortHeader(column.key, column.label))}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -171,7 +241,7 @@ export default function OrderList() {
                   </TableCell>
                 </TableRow>
               ) : (
-                orders?.map((order) => (
+                sortedOrders.map((order) => (
                   <TableRow key={order.id}>
                     <TableCell>
                       <Link
