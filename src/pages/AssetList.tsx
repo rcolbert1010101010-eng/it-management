@@ -5,6 +5,7 @@ import { format, parseISO } from "date-fns";
 import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
+  ASSET_STATUSES,
   bulkDeleteAssets,
   bulkUpdateAssets,
   fetchAssets,
