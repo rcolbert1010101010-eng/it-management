@@ -1,9 +1,20 @@
-﻿import { useQuery } from "@tanstack/react-query";
+﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { format, parseISO } from "date-fns";
 import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
-import { fetchAssets, fetchAssetCategories, ASSET_STATUSES } from "@/lib/api";
+import { toast } from "sonner";
+import {
+  bulkDeleteAssets,
+  bulkUpdateAssets,
+  fetchAssets,
+  fetchAssetCategories,
+  type AssetBulkUpdate,
+} from "@/lib/api";
+import { useAppStore } from "@/lib/store";
+import { BulkActionBar } from "@/components/BulkActionBar";
+import { BulkEditAssetsDialog } from "@/components/BulkEditAssetsDialog";
+import { ConfirmBulkDeleteDialog } from "@/components/ConfirmBulkDeleteDialog";
 import {
   daysSinceLastLogin,
   daysUntilNetworkRemoval,
@@ -15,6 +26,7 @@ import { AssetLifecycleBadge } from "@/components/AssetLifecycleBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -108,11 +120,16 @@ const assetSortableColumns: { key: AssetSortKey; label: string; className?: stri
 export default function AssetList() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const performedBy = useAppStore((s) => s.performedBy);
   const today = useTodayDate();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("");
   const [category, setCategory] = useState<string>("");
   const [complianceFilter, setComplianceFilter] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [sortConfig, setSortConfig] = useState<AssetSortConfig>({
     key: "asset_tag",
     direction: "asc",
@@ -238,6 +255,58 @@ export default function AssetList() {
     </TableHead>
   );
 
+  const visibleIds = useMemo(() => sortedAssets.map((asset) => asset.id), [sortedAssets]);
+  const selectedCount = selectedIds.size;
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someSelected = visibleIds.some((id) => selectedIds.has(id)) && !allSelected;
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const toggleRowSelection = (id: string, checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(visibleIds));
+    } else {
+      clearSelection();
+    }
+  };
+
+  const bulkUpdateMutation = useMutation({
+    mutationFn: (updates: AssetBulkUpdate) =>
+      bulkUpdateAssets([...selectedIds], updates, performedBy),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      setBulkEditOpen(false);
+      clearSelection();
+      toast.success(`Updated ${result.updated} asset${result.updated === 1 ? "" : "s"}`);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: () => bulkDeleteAssets([...selectedIds], performedBy),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      setBulkDeleteOpen(false);
+      clearSelection();
+      if (result.failed > 0) {
+        toast.warning(`Deleted ${result.succeeded}, failed ${result.failed}`);
+      } else {
+        toast.success(`Deleted ${result.succeeded} asset${result.succeeded === 1 ? "" : "s"}`);
+      }
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const isBulkPending = bulkUpdateMutation.isPending || bulkDeleteMutation.isPending;
   const isEmpty = !isLoading && sortedAssets.length === 0;
 
   return (
@@ -303,6 +372,15 @@ export default function AssetList() {
         </Select>
       </div>
 
+      <BulkActionBar
+        entityLabel="asset"
+        selectedCount={selectedCount}
+        onBulkEdit={() => setBulkEditOpen(true)}
+        onDelete={() => setBulkDeleteOpen(true)}
+        onClear={clearSelection}
+        isPending={isBulkPending}
+      />
+
       {isEmpty ? (
         <Card>
           <CardHeader>
@@ -322,13 +400,20 @@ export default function AssetList() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={(checked) => toggleSelectAll(checked === true)}
+                    aria-label="Select all assets"
+                  />
+                </TableHead>
                 {assetSortableColumns.map((column) => renderSortHeader(column.key, column.label))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={13} className="py-8 text-center text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
@@ -339,7 +424,14 @@ export default function AssetList() {
                   const daysUntilRemoval = daysUntilNetworkRemoval(asset.last_logged_in_date, today);
 
                   return (
-                    <TableRow key={asset.id}>
+                    <TableRow key={asset.id} data-state={selectedIds.has(asset.id) ? "selected" : undefined}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(asset.id)}
+                          onCheckedChange={(checked) => toggleRowSelection(asset.id, checked === true)}
+                          aria-label={`Select ${asset.asset_tag || "asset"}`}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Link
                           to={`/assets/${asset.id}`}
@@ -382,6 +474,22 @@ export default function AssetList() {
           </Table>
         </div>
       )}
+
+      <BulkEditAssetsDialog
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        selectedCount={selectedCount}
+        onSubmit={(updates) => bulkUpdateMutation.mutate(updates)}
+        isPending={bulkUpdateMutation.isPending}
+      />
+      <ConfirmBulkDeleteDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        entityLabel="asset"
+        count={selectedCount}
+        onConfirm={() => bulkDeleteMutation.mutate()}
+        isPending={bulkDeleteMutation.isPending}
+      />
     </div>
   );
 }

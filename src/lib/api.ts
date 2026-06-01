@@ -353,6 +353,89 @@ export async function deleteAsset(id: string, performedBy: string) {
   await logAudit("ASSET", id, "DELETED", { asset_tag: data?.asset_tag }, performedBy);
 }
 
+export type AssetBulkUpdate = Partial<
+  Pick<
+    AssetUpdate,
+    | "status"
+    | "category"
+    | "location"
+    | "specific_location"
+    | "assigned_to_name"
+    | "assigned_to_email"
+    | "last_reimaged_date"
+    | "last_logged_in_date"
+  >
+>;
+
+export type BulkMutationResult = {
+  succeeded: number;
+  failed: number;
+  errors: string[];
+};
+
+export async function bulkUpdateAssets(ids: string[], updates: AssetBulkUpdate, performedBy: string) {
+  if (ids.length === 0) {
+    return { updated: 0 };
+  }
+
+  const payload: AssetUpdate = {};
+  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.category !== undefined) payload.category = updates.category;
+  if (updates.location !== undefined) payload.location = trimLocationName(updates.location) || null;
+  if (updates.specific_location !== undefined) {
+    payload.specific_location = trimLocationName(updates.specific_location) || null;
+  }
+  if (updates.assigned_to_name !== undefined) payload.assigned_to_name = updates.assigned_to_name || null;
+  if (updates.assigned_to_email !== undefined) payload.assigned_to_email = updates.assigned_to_email || null;
+  if (updates.last_reimaged_date !== undefined) payload.last_reimaged_date = updates.last_reimaged_date || null;
+  if (updates.last_logged_in_date !== undefined) payload.last_logged_in_date = updates.last_logged_in_date || null;
+
+  if (Object.keys(payload).length === 0) {
+    throw new Error("Select at least one field to update.");
+  }
+
+  const { data, error } = await supabase.from("assets").update(payload).in("id", ids).select("id,asset_tag,status");
+  if (error) throw error;
+
+  const changedFields = Object.keys(payload);
+  for (const asset of data ?? []) {
+    await logAudit(
+      "ASSET",
+      asset.id,
+      "BULK_UPDATED",
+      {
+        asset_tag: asset.asset_tag,
+        bulk: true,
+        changed_fields: changedFields,
+        updates: payload,
+      },
+      performedBy
+    );
+  }
+
+  return { updated: data?.length ?? 0 };
+}
+
+export async function bulkDeleteAssets(ids: string[], performedBy: string): Promise<BulkMutationResult> {
+  const result: BulkMutationResult = { succeeded: 0, failed: 0, errors: [] };
+
+  for (const id of ids) {
+    try {
+      await deleteAsset(id, performedBy);
+      result.succeeded += 1;
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push(error instanceof Error ? error.message : "Unknown error");
+    }
+  }
+
+  if (result.succeeded === 0 && result.failed > 0) {
+    throw new Error(result.errors[0] ?? "Failed to delete selected assets.");
+  }
+
+  return result;
+}
+
 // ---- Orders ----
 
 export async function fetchOrders(params?: { search?: string; status?: string }) {
@@ -467,6 +550,86 @@ export async function deleteOrder(id: string, performedBy: string) {
   const { error } = await supabase.from("orders").delete().eq("id", id);
   if (error) throw error;
   await logAudit("ORDER", id, "DELETED", { order_number: data?.order_number }, performedBy);
+}
+
+export type OrderBulkUpdate = Partial<
+  Pick<
+    OrderUpdate,
+    | "status"
+    | "vendor_name"
+    | "requested_by_name"
+    | "requested_by_email"
+    | "order_date"
+    | "expected_delivery_date"
+    | "received_date"
+    | "notes"
+  >
+>;
+
+export async function bulkUpdateOrders(ids: string[], updates: OrderBulkUpdate, performedBy: string) {
+  if (ids.length === 0) {
+    return { updated: 0 };
+  }
+
+  const payload: OrderUpdate = {};
+  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.vendor_name !== undefined) payload.vendor_name = updates.vendor_name;
+  if (updates.requested_by_name !== undefined) payload.requested_by_name = updates.requested_by_name || null;
+  if (updates.requested_by_email !== undefined) payload.requested_by_email = updates.requested_by_email || null;
+  if (updates.order_date !== undefined) payload.order_date = updates.order_date || null;
+  if (updates.expected_delivery_date !== undefined) {
+    payload.expected_delivery_date = updates.expected_delivery_date || null;
+  }
+  if (updates.received_date !== undefined) payload.received_date = updates.received_date || null;
+  if (updates.notes !== undefined) payload.notes = updates.notes || null;
+
+  if (Object.keys(payload).length === 0) {
+    throw new Error("Select at least one field to update.");
+  }
+
+  const { data, error } = await supabase.from("orders").update(payload).in("id", ids).select("id,order_number,status");
+  if (error) {
+    if (error.code === "23505") throw new Error("An order with this order number already exists.");
+    throw error;
+  }
+
+  const changedFields = Object.keys(payload);
+  for (const order of data ?? []) {
+    await logAudit(
+      "ORDER",
+      order.id,
+      "BULK_UPDATED",
+      {
+        order_number: order.order_number,
+        bulk: true,
+        changed_fields: changedFields,
+        updates: payload,
+      },
+      performedBy
+    );
+  }
+
+  return { updated: data?.length ?? 0 };
+}
+
+export async function bulkDeleteOrders(ids: string[], performedBy: string): Promise<BulkMutationResult> {
+  const result: BulkMutationResult = { succeeded: 0, failed: 0, errors: [] };
+
+  for (const id of ids) {
+    try {
+      await deleteOrder(id, performedBy);
+      result.succeeded += 1;
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push(error instanceof Error ? error.message : "Unknown error");
+    }
+  }
+
+  if (result.succeeded === 0 && result.failed > 0) {
+    throw new Error(result.errors[0] ?? "Failed to delete selected orders.");
+  }
+
+  return result;
 }
 
 export async function upsertOrderLineItems(

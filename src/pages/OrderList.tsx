@@ -1,13 +1,25 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
-import { fetchOrders, ORDER_STATUSES } from "@/lib/api";
+import { toast } from "sonner";
+import {
+  bulkDeleteOrders,
+  bulkUpdateOrders,
+  fetchOrders,
+  ORDER_STATUSES,
+  type OrderBulkUpdate,
+} from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { getOrderStatusLabel } from "@/lib/status";
+import { useAppStore } from "@/lib/store";
+import { BulkActionBar } from "@/components/BulkActionBar";
+import { BulkEditOrdersDialog } from "@/components/BulkEditOrdersDialog";
+import { ConfirmBulkDeleteDialog } from "@/components/ConfirmBulkDeleteDialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -74,9 +86,14 @@ const compareDate = (a: string | null | undefined, b: string | null | undefined)
 export default function OrderList() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const performedBy = useAppStore((s) => s.performedBy);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("");
   const [vendor, setVendor] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [sortConfig, setSortConfig] = useState<OrderSortConfig>({
     key: "order_number",
     direction: "asc",
@@ -173,6 +190,62 @@ export default function OrderList() {
     </TableHead>
   );
 
+  const visibleIds = useMemo(() => sortedOrders.map((order) => order.id), [sortedOrders]);
+  const selectedCount = selectedIds.size;
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someSelected = visibleIds.some((id) => selectedIds.has(id)) && !allSelected;
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const toggleRowSelection = (id: string, checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(visibleIds));
+    } else {
+      clearSelection();
+    }
+  };
+
+  const bulkUpdateMutation = useMutation({
+    mutationFn: (updates: OrderBulkUpdate) => {
+      if (updates.vendor_name !== undefined && !updates.vendor_name.trim()) {
+        throw new Error("Vendor name cannot be empty.");
+      }
+      return bulkUpdateOrders([...selectedIds], updates, performedBy);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      setBulkEditOpen(false);
+      clearSelection();
+      toast.success(`Updated ${result.updated} order${result.updated === 1 ? "" : "s"}`);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: () => bulkDeleteOrders([...selectedIds], performedBy),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      setBulkDeleteOpen(false);
+      clearSelection();
+      if (result.failed > 0) {
+        toast.warning(`Deleted ${result.succeeded}, failed ${result.failed}`);
+      } else {
+        toast.success(`Deleted ${result.succeeded} order${result.succeeded === 1 ? "" : "s"}`);
+      }
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const isBulkPending = bulkUpdateMutation.isPending || bulkDeleteMutation.isPending;
   const isEmpty = !isLoading && sortedOrders.length === 0;
 
   return (
@@ -211,6 +284,15 @@ export default function OrderList() {
         </Select>
       </div>
 
+      <BulkActionBar
+        entityLabel="order"
+        selectedCount={selectedCount}
+        onBulkEdit={() => setBulkEditOpen(true)}
+        onDelete={() => setBulkDeleteOpen(true)}
+        onClear={clearSelection}
+        isPending={isBulkPending}
+      />
+
       {isEmpty ? (
         <Card>
           <CardHeader>
@@ -230,19 +312,33 @@ export default function OrderList() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={(checked) => toggleSelectAll(checked === true)}
+                    aria-label="Select all orders"
+                  />
+                </TableHead>
                 {orderSortableColumns.map((column) => renderSortHeader(column.key, column.label))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : (
                 sortedOrders.map((order) => (
-                  <TableRow key={order.id}>
+                  <TableRow key={order.id} data-state={selectedIds.has(order.id) ? "selected" : undefined}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.has(order.id)}
+                        onCheckedChange={(checked) => toggleRowSelection(order.id, checked === true)}
+                        aria-label={`Select order ${order.order_number}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Link
                         to={`/orders/${order.id}`}
@@ -274,6 +370,22 @@ export default function OrderList() {
           </Table>
         </div>
       )}
+
+      <BulkEditOrdersDialog
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        selectedCount={selectedCount}
+        onSubmit={(updates) => bulkUpdateMutation.mutate(updates)}
+        isPending={bulkUpdateMutation.isPending}
+      />
+      <ConfirmBulkDeleteDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        entityLabel="order"
+        count={selectedCount}
+        onConfirm={() => bulkDeleteMutation.mutate()}
+        isPending={bulkDeleteMutation.isPending}
+      />
     </div>
   );
 }
